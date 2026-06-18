@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         学习通题目提取器
-// @version      1.0
-// @description  一键提取学习通作业页面题目，支持附加答案、错题收集、TXT/Markdown 双格式导出
+// @version      2.0
+// @description  一键提取学习通作业页面题目，支持 TXT/Markdown/Word 试卷导出，附加答案与错题收集
 // @author       huilin
 // @match        *://*.chaoxing.com/*
 // @match        *://*.edu.cn/*
+// @require      https://unpkg.com/docx@8.5.0/build/index.umd.js
 // @grant        none
 // ==/UserScript==
 
@@ -519,6 +520,121 @@
     return output.replace(/\n+$/, '');
   }
 
+  // ==================== Word 文档生成（纯前端） ====================
+  async function generateWordBlob(results, typeOrder, title) {
+    const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
+            AlignmentType, WidthType, convertMillimetersToTwip } = docx;
+
+    const typeHeaders = {
+      '单选': '一、单项选择题', '填空': '二、填空题',
+      '判断': '三、判断题', '简答': '四、简答题',
+    };
+
+    const children = [];
+
+    // 标题
+    children.push(new Paragraph({
+      children: [new TextRun({ text: title || '试卷', font: "宋体", size: 32, bold: true, color: "000000" })],
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 240 }
+    }));
+
+    let qNum = 0;
+
+    for (const qtype of typeOrder) {
+      const questions = results[qtype];
+      if (!questions || questions.length === 0) continue;
+
+      const header = typeHeaders[qtype] || qtype;
+      const count = questions.length;
+
+      children.push(new Paragraph({
+        children: [new TextRun({ text: `${header}（本大题共${count}小题）`, font: "宋体", size: 28, bold: true, color: "000000" })],
+        spacing: { after: 120 }
+      }));
+
+      for (const q of questions) {
+        qNum++;
+
+        if (qtype === '单选') {
+          children.push(new Paragraph({
+            children: [new TextRun({ text: `${qNum}. ${q.stem}`, font: "宋体", size: 24 })],
+            spacing: { after: 40 }
+          }));
+          const options = q.options || [];
+          if (options.length > 0) {
+            const optionText = options.map(o => `${o.letter}. ${o.text}`).join('    ');
+            if (optionText.length > 50) {
+              const rows = [];
+              for (let r = 0; r < 2; r++) {
+                const cells = [];
+                for (let c = 0; c < 2; c++) {
+                  const idx = r * 2 + c;
+                  const opt = options[idx];
+                  cells.push(new TableCell({
+                    children: [new Paragraph({
+                      children: [new TextRun({ text: opt ? `${opt.letter}. ${opt.text}` : '', font: "宋体", size: 24 })],
+                      spacing: { after: 20 }
+                    })],
+                    borders: { top: { style: "none", size: 0 }, bottom: { style: "none", size: 0 }, left: { style: "none", size: 0 }, right: { style: "none", size: 0 } }
+                  }));
+                }
+                rows.push(new TableRow({ children: cells }));
+              }
+              children.push(new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } }));
+              children.push(new Paragraph({ children: [], spacing: { after: 40 } }));
+            } else {
+              children.push(new Paragraph({
+                children: [new TextRun({ text: `    ${optionText}`, font: "宋体", size: 24 })],
+                spacing: { after: 160 }
+              }));
+            }
+          }
+        } else if (qtype === '填空') {
+          children.push(new Paragraph({
+            children: [new TextRun({ text: `${qNum}. ${q.stem}`, font: "宋体", size: 24 })],
+            spacing: { after: 160 }
+          }));
+        } else if (qtype === '判断') {
+          children.push(new Paragraph({
+            children: [new TextRun({ text: `${qNum}. ${q.stem}`, font: "宋体", size: 24 })],
+            spacing: { after: 160 }
+          }));
+        } else if (qtype === '简答') {
+          children.push(new Paragraph({
+            children: [new TextRun({ text: `${qNum}. ${q.stem}`, font: "宋体", size: 24 })],
+            spacing: { after: 40 }
+          }));
+          for (let i = 0; i < 8; i++) {
+            children.push(new Paragraph({
+              children: [new TextRun({ text: '', font: "宋体", size: 24 })],
+              spacing: { after: 40 }
+            }));
+          }
+          children.push(new Paragraph({ children: [], spacing: { after: 80 } }));
+        }
+      }
+    }
+
+    const doc = new Document({
+      sections: [{
+        properties: {
+          page: {
+            margin: {
+              top: convertMillimetersToTwip(25),
+              bottom: convertMillimetersToTwip(25),
+              left: convertMillimetersToTwip(25),
+              right: convertMillimetersToTwip(25)
+            }
+          }
+        },
+        children
+      }]
+    });
+
+    return await Packer.toBlob(doc);
+  }
+
   // ==================== UI 创建 ====================
   let extractedData = null;
 
@@ -548,6 +664,7 @@
             <span>输出格式</span>
             <label><input type="radio" name="xxt-fmt" value="txt" checked> TXT</label>
             <label><input type="radio" name="xxt-fmt" value="md"> MD</label>
+            <label><input type="radio" name="xxt-fmt" value="word"> Word 试卷</label>
           </div>
         </div>
         <div class="xxt-actions">
@@ -592,10 +709,18 @@
       if (!panel.contains(e.target) && e.target !== btn) panel.classList.remove('open');
     });
 
-    // 格式切换时更新文件名后缀
+    // 格式切换时更新文件名，Word 格式隐藏答案/错题选项
     panel.addEventListener('change', (e) => {
       if (e.target.name === 'xxt-fmt' && extractedData) {
         updateFilename(els);
+        const isWord = getFormat(els) === 'word';
+        const chkAnswers = document.getElementById('xxt-chkAnswers');
+        const chkWrong = document.getElementById('xxt-chkWrong');
+        const wrongToggle = document.getElementById('xxt-wrong-toggle');
+        const wrongHint = document.getElementById('xxt-wrong-hint');
+        if (chkAnswers) chkAnswers.closest('.xxt-toggle').style.display = isWord ? 'none' : '';
+        if (wrongToggle) wrongToggle.style.display = isWord ? 'none' : '';
+        if (wrongHint) wrongHint.style.display = isWord ? 'none' : '';
       }
     });
 
@@ -650,12 +775,34 @@
       els.btnExtract.textContent = '重新提取';
     });
 
-    els.btnDownload.addEventListener('click', () => {
+    els.btnDownload.addEventListener('click', async () => {
       if (!extractedData) return;
+      const fmt = getFormat(els);
+
+      if (fmt === 'word') {
+        // Word 试卷导出
+        els.btnDownload.disabled = true;
+        els.btnDownload.textContent = '生成中...';
+        try {
+          const blob = await generateWordBlob(extractedData.results, extractedData.typeOrder, extractedData.title);
+          const filename = (els.filename.value || '学习通试卷').replace(/\.(txt|md)$/, '') + '.docx';
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.download = filename; a.click();
+          URL.revokeObjectURL(url);
+          showStatus(els, 'Word 试卷已下载', 'ok');
+        } catch (err) {
+          showStatus(els, 'Word 导出失败: ' + err.message, 'err');
+        }
+        els.btnDownload.disabled = false;
+        els.btnDownload.textContent = '\u{1F847} 下载';
+        return;
+      }
+
       const text = getOutputText(els);
       const filename = els.filename.value || '学习通题目.txt';
-      const ext = getFormat(els) === 'md' ? '.md' : '.txt';
-      const mime = getFormat(els) === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8';
+      const ext = fmt === 'md' ? '.md' : '.txt';
+      const mime = fmt === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8';
       const blob = new Blob([text], { type: mime });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -667,6 +814,11 @@
 
     els.btnCopy.addEventListener('click', async () => {
       if (!extractedData) return;
+      const fmt = getFormat(els);
+      if (fmt === 'word') {
+        showStatus(els, 'Word 格式不支持复制，请使用下载', 'warn');
+        return;
+      }
       const text = getOutputText(els);
       try {
         await navigator.clipboard.writeText(text);
@@ -717,7 +869,8 @@
     if (!extractedData) return;
     const title = extractedData.title || '学习通题目';
     const cleanTitle = title.replace(/[\\/:*?"<>|]/g, '_').substring(0, 60);
-    const ext = getFormat(els) === 'md' ? '.md' : '.txt';
+    const fmt = getFormat(els);
+    const ext = fmt === 'md' ? '.md' : fmt === 'word' ? '.docx' : '.txt';
     els.filename.value = cleanTitle + ext;
     els.filename.classList.remove('xxt-hidden');
   }

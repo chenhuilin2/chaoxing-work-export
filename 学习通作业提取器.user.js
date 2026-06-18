@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         学习通作业提取器
 // @license      GPL-3.0
-// @version      1.3
-// @description  一键提取学习通作业页面题目，支持 Word试卷/TXT/Markdown 导出，可附加答案与错题收集
+// @version      1.4
+// @description  一键提取学习通作业题目，支持 Word/TXT/MD 导出，答案/错题收集，题目随机打乱，暗色模式，快捷键
 // @author       huilin
 // @icon         http://pan-yz.chaoxing.com/favicon.ico
 // @match        *://*.chaoxing.com/*
@@ -202,6 +202,52 @@
 
 .xxt-hidden { display: none !important; }
 
+/* ===== 设置面板 ===== */
+#xxt-panel .xxt-settings {
+  border-top: 1px solid #eee; margin-top: 14px; padding-top: 12px;
+}
+#xxt-panel .xxt-settings-title {
+  font-size: 12px; color: #999; font-weight: 600;
+  margin-bottom: 8px; letter-spacing: 1px;
+}
+#xxt-panel .xxt-setting-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; border-radius: 8px;
+  background: #fafbfc; border: 1px solid #eef0f2;
+  margin-bottom: 8px; transition: background 0.2s;
+  font-size: 12.5px; color: #444;
+}
+#xxt-panel .xxt-setting-row:hover { background: #f0f2f5; }
+#xxt-panel .xxt-setting-label {
+  font-weight: 500; white-space: nowrap;
+}
+#xxt-panel .xxt-theme-group {
+  display: flex; gap: 4px;
+}
+#xxt-panel .xxt-theme-btn {
+  padding: 3px 10px; border-radius: 14px; border: 1.5px solid #ddd;
+  background: #fff; color: #666; font-size: 11px; cursor: pointer;
+  transition: all 0.2s ease; font-weight: 500;
+}
+#xxt-panel .xxt-theme-btn:hover { border-color: #bbb; color: #333; }
+#xxt-panel .xxt-theme-btn.active {
+  background: #e8f4fd; color: #1e88e5; border-color: #1e88e5;
+}
+#xxt-panel .xxt-shortcut-display {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 6px;
+  background: #f0f0f0; border: 1px solid #ddd;
+  cursor: pointer; transition: all 0.2s ease; font-size: 12px;
+}
+#xxt-panel .xxt-shortcut-display:hover { border-color: #1e88e5; }
+#xxt-panel .xxt-shortcut-keys {
+  color: #1e88e5; font-weight: 600; font-family: monospace;
+  padding: 2px 6px; background: #e8f4fd; border-radius: 4px;
+}
+#xxt-panel .xxt-shortcut-hint {
+  color: #999; font-size: 11px;
+}
+
 /* ===== 响应式微调 ===== */
 @media screen and (max-height: 700px) {
   #xxt-panel { top: 40px; max-height: 92vh; }
@@ -213,6 +259,205 @@
   const style = document.createElement('style');
   style.textContent = css;
   document.head.appendChild(style);
+
+  // ==================== 暗色模式 CSS ====================
+  const darkCSS = `
+[data-xxt-theme="dark"] #xxt-panel-btn {
+  background: #3b82f6;
+  box-shadow: -3px 3px 12px rgba(59,130,246,0.3);
+}
+[data-xxt-theme="dark"] #xxt-panel-btn:hover {
+  background: #2563eb;
+  box-shadow: -4px 4px 16px rgba(59,130,246,0.4);
+}
+[data-xxt-theme="dark"] #xxt-panel {
+  background: #1e1e2e; color: #cdd6f4;
+  box-shadow: -4px 4px 20px rgba(0,0,0,0.3), -2px 2px 6px rgba(0,0,0,0.2);
+}
+[data-xxt-theme="dark"] #xxt-panel::-webkit-scrollbar-thumb { background: #45475a; }
+[data-xxt-theme="dark"] #xxt-panel .xxt-header {
+  border-bottom-color: #313244;
+}
+[data-xxt-theme="dark"] #xxt-panel .xxt-header h3 { color: #cdd6f4; }
+[data-xxt-theme="dark"] #xxt-panel .xxt-close-btn {
+  background: #313244; color: #a6adc8;
+}
+[data-xxt-theme="dark"] #xxt-panel .xxt-close-btn:hover { background: #45475a; color: #cdd6f4; }
+[data-xxt-theme="dark"] #xxt-panel .xxt-btn-extract {
+  background: #3b82f6; color: #fff;
+  box-shadow: 0 2px 6px rgba(59,130,246,0.25);
+}
+[data-xxt-theme="dark"] #xxt-panel .xxt-btn-extract:hover {
+  background: #2563eb;
+  box-shadow: 0 3px 10px rgba(59,130,246,0.35);
+}
+[data-xxt-theme="dark"] #xxt-panel .xxt-btn-extract:disabled { background: #45475a; }
+[data-xxt-theme="dark"] .xxt-status-ok { color: #4ade80; background: #052e16; border-color: #166534; }
+[data-xxt-theme="dark"] .xxt-status-err { color: #f87171; background: #450a0a; border-color: #991b1b; }
+[data-xxt-theme="dark"] .xxt-status-warn { color: #fbbf24; background: #451a03; border-color: #92400e; }
+[data-xxt-theme="dark"] #xxt-panel .xxt-stat-item {
+  background: #181825; border-color: #313244;
+}
+[data-xxt-theme="dark"] #xxt-panel .xxt-stat-item:hover { border-color: #3b82f6; }
+[data-xxt-theme="dark"] #xxt-panel .xxt-stat-item .xxt-num { color: #89b4fa; }
+[data-xxt-theme="dark"] #xxt-panel .xxt-stat-item .xxt-label { color: #a6adc8; }
+[data-xxt-theme="dark"] #xxt-panel .xxt-section {
+  background: #181825; border-color: #313244;
+}
+[data-xxt-theme="dark"] #xxt-panel .xxt-filename {
+  border-color: #45475a; color: #cdd6f4; background: #11111b;
+}
+[data-xxt-theme="dark"] #xxt-panel .xxt-filename:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.12);
+}
+[data-xxt-theme="dark"] #xxt-panel .xxt-format-row { color: #a6adc8; }
+[data-xxt-theme="dark"] #xxt-panel .xxt-format-row label {
+  border-color: #45475a; background: #181825;
+}
+[data-xxt-theme="dark"] #xxt-panel .xxt-format-row label:hover { border-color: #585b70; background: #1e1e2e; }
+[data-xxt-theme="dark"] #xxt-panel .xxt-format-row label:has(input:checked) {
+  color: #89b4fa; border-color: #3b82f6; background: #1e1e3e;
+}
+[data-xxt-theme="dark"] .xxt-btn-outline {
+  background: #181825; color: #89b4fa; border-color: #3b82f6 !important;
+}
+[data-xxt-theme="dark"] .xxt-btn-outline:hover {
+  background: #3b82f6; color: #fff;
+}
+[data-xxt-theme="dark"] #xxt-panel .xxt-toggle {
+  background: #181825; border-color: #313244;
+}
+[data-xxt-theme="dark"] #xxt-panel .xxt-toggle:hover { background: #1e1e2e; }
+[data-xxt-theme="dark"] #xxt-panel .xxt-toggle .xxt-checkbox-wrap {
+  border-color: #585b70; background: #11111b;
+}
+[data-xxt-theme="dark"] #xxt-panel .xxt-toggle span { color: #cdd6f4; }
+[data-xxt-theme="dark"] #xxt-panel .xxt-wrong-hint {
+  color: #f87171; background: #450a0a; border-color: #991b1b;
+}
+/* ===== 设置面板暗色 ===== */
+[data-xxt-theme="dark"] #xxt-panel .xxt-settings {
+  border-top-color: #313244;
+}
+[data-xxt-theme="dark"] #xxt-panel .xxt-setting-row {
+  background: #181825; border-color: #313244;
+}
+[data-xxt-theme="dark"] #xxt-panel .xxt-setting-row:hover { background: #1e1e2e; }
+[data-xxt-theme="dark"] #xxt-panel .xxt-theme-btn {
+  background: #313244; color: #a6adc8; border-color: #45475a;
+}
+[data-xxt-theme="dark"] #xxt-panel .xxt-theme-btn:hover { border-color: #585b70; color: #cdd6f4; }
+[data-xxt-theme="dark"] #xxt-panel .xxt-theme-btn.active {
+  background: #1e3a5f; color: #89b4fa; border-color: #3b82f6;
+}
+[data-xxt-theme="dark"] #xxt-panel .xxt-shortcut-display {
+  background: #11111b; border-color: #45475a; color: #cdd6f4;
+}
+[data-xxt-theme="dark"] #xxt-panel .xxt-shortcut-keys {
+  color: #89b4fa; background: #1e1e3e;
+}
+  `;
+  const darkStyle = document.createElement('style');
+  darkStyle.textContent = darkCSS;
+  document.head.appendChild(darkStyle);
+
+  // ==================== 设置存储 ====================
+  const SETTINGS_KEY = 'xxt_settings';
+  const DEFAULT_SETTINGS = {
+    theme: 'auto',           // 'auto' | 'light' | 'dark'
+    shortcut: {
+      ctrl: true, shift: true, alt: false, key: 'e'
+    }
+  };
+
+  function loadSettings() {
+    try {
+      const raw = localStorage.getItem(SETTINGS_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        return {
+          theme: saved.theme || DEFAULT_SETTINGS.theme,
+          shortcut: { ...DEFAULT_SETTINGS.shortcut, ...(saved.shortcut || {}) }
+        };
+      }
+    } catch (e) { /* ignore */ }
+    return { ...DEFAULT_SETTINGS, shortcut: { ...DEFAULT_SETTINGS.shortcut } };
+  }
+
+  function saveSettings(settings) {
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch (e) { /* ignore */ }
+  }
+
+  let currentSettings = loadSettings();
+
+  // ==================== 主题切换 ====================
+  function applyTheme(theme) {
+    const root = document.documentElement;
+    if (theme === 'dark') {
+      root.setAttribute('data-xxt-theme', 'dark');
+    } else if (theme === 'light') {
+      root.removeAttribute('data-xxt-theme');
+    } else {
+      // auto: 跟随系统
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        root.setAttribute('data-xxt-theme', 'dark');
+      } else {
+        root.removeAttribute('data-xxt-theme');
+      }
+    }
+  }
+
+  applyTheme(currentSettings.theme);
+
+  // 监听系统主题变化（仅在 auto 模式下生效）
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (currentSettings.theme === 'auto') {
+      applyTheme('auto');
+    }
+  });
+
+  // ==================== 快捷键 ====================
+  function formatShortcutLabel(sc) {
+    const parts = [];
+    if (sc.ctrl) parts.push('Ctrl');
+    if (sc.shift) parts.push('Shift');
+    if (sc.alt) parts.push('Alt');
+    parts.push(sc.key.toUpperCase());
+    return parts.join(' + ');
+  }
+
+  function isShortcutMatch(e, sc) {
+    return e.ctrlKey === sc.ctrl &&
+           e.shiftKey === sc.shift &&
+           e.altKey === sc.alt &&
+           e.key.toLowerCase() === sc.key.toLowerCase();
+  }
+
+  document.addEventListener('keydown', (e) => {
+    // 如果正在录制快捷键，忽略
+    if (window.__xxt_recording) return;
+    if (!isShortcutMatch(e, currentSettings.shortcut)) return;
+
+    e.preventDefault();
+    const panel = document.getElementById('xxt-panel');
+    const btnEl = document.getElementById('xxt-panel-btn');
+    const btnExtract = document.getElementById('xxt-btnExtract');
+
+    if (!panel) return;
+
+    // 面板未打开：打开面板
+    if (!panel.classList.contains('open')) {
+      panel.classList.add('open');
+    }
+
+    // 触发提取
+    if (btnExtract && !btnExtract.disabled) {
+      btnExtract.click();
+    }
+  });
 
   // ==================== 提取逻辑 ====================
   const TYPE_MAP = {
@@ -698,6 +943,24 @@
           <span>打乱题目顺序</span>
         </label>
         <div id="xxt-wrong-hint" class="xxt-wrong-hint xxt-hidden"></div>
+        <div class="xxt-settings">
+          <div class="xxt-settings-title">设置</div>
+          <div class="xxt-setting-row">
+            <span class="xxt-setting-label">主题</span>
+            <div class="xxt-theme-group" id="xxt-theme-group">
+              <button class="xxt-theme-btn" data-theme="auto">自动</button>
+              <button class="xxt-theme-btn" data-theme="light">浅色</button>
+              <button class="xxt-theme-btn" data-theme="dark">深色</button>
+            </div>
+          </div>
+          <div class="xxt-setting-row">
+            <span class="xxt-setting-label">快捷键</span>
+            <div class="xxt-shortcut-display" id="xxt-shortcut-display">
+              <span class="xxt-shortcut-keys" id="xxt-shortcut-keys"></span>
+              <span class="xxt-shortcut-hint" id="xxt-shortcut-hint">点击修改</span>
+            </div>
+          </div>
+        </div>
       </div>
     `;
     document.body.appendChild(panel);
@@ -724,6 +987,72 @@
     els.closeBtn.addEventListener('click', () => { panel.classList.remove('open'); });
     document.addEventListener('click', (e) => {
       if (!panel.contains(e.target) && e.target !== btn) panel.classList.remove('open');
+    });
+
+    // ==================== 设置面板事件 ====================
+    // 初始化主题按钮状态
+    const themeBtns = document.querySelectorAll('#xxt-theme-group .xxt-theme-btn');
+    function updateThemeUI() {
+      themeBtns.forEach(b => {
+        b.classList.toggle('active', b.dataset.theme === currentSettings.theme);
+      });
+    }
+    updateThemeUI();
+
+    themeBtns.forEach(b => {
+      b.addEventListener('click', () => {
+        currentSettings.theme = b.dataset.theme;
+        applyTheme(currentSettings.theme);
+        saveSettings(currentSettings);
+        updateThemeUI();
+      });
+    });
+
+    // 初始化快捷键显示
+    const shortcutDisplay = document.getElementById('xxt-shortcut-display');
+    const shortcutKeysEl = document.getElementById('xxt-shortcut-keys');
+    const shortcutHintEl = document.getElementById('xxt-shortcut-hint');
+    function updateShortcutUI() {
+      shortcutKeysEl.textContent = formatShortcutLabel(currentSettings.shortcut);
+    }
+    updateShortcutUI();
+
+    // 快捷键录制
+    shortcutDisplay.addEventListener('click', () => {
+      shortcutHintEl.textContent = '请按下新快捷键...';
+      shortcutKeysEl.textContent = '...';
+      shortcutDisplay.style.borderColor = '#1e88e5';
+      window.__xxt_recording = true;
+
+      function onKeyDown(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const key = e.key;
+        // 忽略单独的修饰键
+        if (['Control', 'Shift', 'Alt', 'Meta'].includes(key)) return;
+
+        currentSettings.shortcut = {
+          ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, key: key.toLowerCase()
+        };
+        saveSettings(currentSettings);
+        updateShortcutUI();
+        shortcutHintEl.textContent = '点击修改';
+        shortcutDisplay.style.borderColor = '';
+        window.__xxt_recording = false;
+        document.removeEventListener('keydown', onKeyDown, true);
+      }
+      document.addEventListener('keydown', onKeyDown, true);
+
+      // 3 秒后自动取消录制
+      setTimeout(() => {
+        if (window.__xxt_recording) {
+          window.__xxt_recording = false;
+          document.removeEventListener('keydown', onKeyDown, true);
+          updateShortcutUI();
+          shortcutHintEl.textContent = '点击修改';
+          shortcutDisplay.style.borderColor = '';
+        }
+      }, 5000);
     });
 
     // 格式切换时更新文件名，Word 格式隐藏答案/错题选项

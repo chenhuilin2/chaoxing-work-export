@@ -1,8 +1,8 @@
 // ==UserScript==
+// @name         学习通作业提取器
 // @license      GPL-3.0
-// @name         学习通题目提取器
-// @version      1.1
-// @description  一键提取学习通作业页面题目，支持 TXT/Markdown/Word 试卷导出，附加答案与错题收集
+// @version      1.2
+// @description  一键提取学习通作业页面题目，支持 Word试卷/TXT/Markdown 导出，可附加答案与错题收集
 // @author       huilin
 // @icon         http://pan-yz.chaoxing.com/favicon.ico
 // @match        *://*.chaoxing.com/*

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通作业提取器
 // @license      GPL-3.0
-// @version      1.2
+// @version      1.3
 // @description  一键提取学习通作业页面题目，支持 Word试卷/TXT/Markdown 导出，可附加答案与错题收集
 // @author       huilin
 // @icon         http://pan-yz.chaoxing.com/favicon.ico
@@ -282,6 +282,20 @@
     if (!myAnswer) return false; // 没有我的答案，不算错题
     if (!correctAnswer) return false;
     return myAnswer.trim() !== correctAnswer.trim();
+  }
+
+  // Fisher-Yates 洗牌算法，同类型题目内部打乱
+  function shuffleQuestions(results, typeOrder) {
+    const shuffled = {};
+    for (const qtype of typeOrder) {
+      const arr = [...(results[qtype] || [])];
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      shuffled[qtype] = arr;
+    }
+    return shuffled;
   }
 
   function extract() {
@@ -671,12 +685,17 @@
         <label class="xxt-toggle">
           <input type="checkbox" id="xxt-chkAnswers">
           <div class="xxt-checkbox-wrap"></div>
-          <span>附加答案（答案汇总附在最后）</span>
+          <span>附加答案</span>
         </label>
         <label class="xxt-toggle xxt-hidden" id="xxt-wrong-toggle">
           <input type="checkbox" id="xxt-chkWrong">
           <div class="xxt-checkbox-wrap"></div>
-          <span>附加错题（错题附在答案后）</span>
+          <span>附加错题</span>
+        </label>
+        <label class="xxt-toggle" id="xxt-shuffle-toggle">
+          <input type="checkbox" id="xxt-chkShuffle">
+          <div class="xxt-checkbox-wrap"></div>
+          <span>打乱题目顺序</span>
         </label>
         <div id="xxt-wrong-hint" class="xxt-wrong-hint xxt-hidden"></div>
       </div>
@@ -697,6 +716,7 @@
       chkWrong: $('xxt-chkWrong'),
       wrongToggle: $('xxt-wrong-toggle'),
       wrongHint: $('xxt-wrong-hint'),
+      chkShuffle: $('xxt-chkShuffle'),
       closeBtn: $('xxt-closeBtn'),
     };
 
@@ -781,7 +801,11 @@
         els.btnDownload.disabled = true;
         els.btnDownload.textContent = '生成中...';
         try {
-          const blob = await generateWordBlob(extractedData.results, extractedData.typeOrder, extractedData.title);
+          const doShuffle = els.chkShuffle && els.chkShuffle.checked;
+          const activeResults = doShuffle
+            ? shuffleQuestions(extractedData.results, extractedData.typeOrder)
+            : extractedData.results;
+          const blob = await generateWordBlob(activeResults, extractedData.typeOrder, extractedData.title);
           const filename = (els.filename.value || '学习通试卷').replace(/\.(txt|md|docx)$/, '') + '.docx';
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
@@ -847,12 +871,23 @@
     const fmt = getFormat(els);
     const withAnswers = els.chkAnswers.checked;
     const withWrong = els.chkWrong && els.chkWrong.checked;
+    const doShuffle = els.chkShuffle && els.chkShuffle.checked;
 
+    // 打乱时重新生成题目文本，答案和错题始终用原始顺序
     let base = '';
-    if (fmt === 'md') {
-      base = withAnswers ? extractedData.textWithAnswersMD : extractedData.textMD;
+    if (doShuffle) {
+      const shuffled = shuffleQuestions(extractedData.results, extractedData.typeOrder);
+      if (fmt === 'md') {
+        base = withAnswers ? formatOutputWithAnswersMD(shuffled, extractedData.typeOrder) : formatOutputMD(shuffled, extractedData.typeOrder);
+      } else {
+        base = withAnswers ? formatOutputWithAnswers(shuffled, extractedData.typeOrder) : formatOutput(shuffled, extractedData.typeOrder);
+      }
     } else {
-      base = withAnswers ? extractedData.textWithAnswers : extractedData.text;
+      if (fmt === 'md') {
+        base = withAnswers ? extractedData.textWithAnswersMD : extractedData.textMD;
+      } else {
+        base = withAnswers ? extractedData.textWithAnswers : extractedData.text;
+      }
     }
 
     if (withWrong) {

@@ -1,0 +1,2869 @@
+<!DOCTYPE html>
+<html>
+
+<script>
+    _HOST_ = "//mooc1.chaoxing.com";
+    _CP_ = "/mooc-ans";
+    _HOST_CP1_ = "//mooc1.chaoxing.com/mooc-ans";
+    // _HOST_CP2_ = _HOST_ + _CP_;
+    _HOST_CP2_ = _CP_;
+</script>
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>作业详情</title>
+    <link rel="stylesheet" type="text/css" href="//mooc1.chaoxing.com/mooc-ans/mooc2/css/pop.css" />
+    <link rel="stylesheet" type="text/css" href="//mooc1.chaoxing.com/mooc-ans/mooc2/css/common.css?v=2025-0424-1038" />
+    <link rel="stylesheet" type="text/css" href="//mooc1.chaoxing.com/mooc-ans/mooc2/css/marking_icon.css" />
+    <link rel="stylesheet" type="text/css"
+        href="//mooc1.chaoxing.com/mooc-ans/mooc2/css/viewStudent.css?v=2025-0813-1100" />
+    <link rel="stylesheet" type="text/css" href="//mooc1.chaoxing.com/mooc-ans/mooc2/css/taskStudent_pop.css" />
+    <link rel="stylesheet" type="text/css"
+        href="//mooc1.chaoxing.com/mooc-ans/mooc2/css/oralTest.css?v=2022-0727-1100" />
+    <link rel="stylesheet" type="text/css" href="//mooc1.chaoxing.com/mooc-ans/mooc2/css/animationQuestion.css" />
+    <style type="text/css">
+        .classtips {
+            margin: 30px 40px 0;
+            padding: 10px 20px;
+            border: 1px solid #FBE59A;
+            background: #FEFBE8;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #474C59;
+        }
+
+        .classtips .tipsPop {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            vertical-align: middle;
+            margin-right: 8px;
+            background: #ff0
+        }
+
+        .classtips .tipsPop img {
+            display: block;
+            width: 100%;
+            height: 100%
+        }
+
+        /*知识点样式*/
+        .colorGray {
+            color: #8A8B99
+        }
+
+        .knowledgeList li {
+            float: left;
+            padding: 6px 14px;
+            background: #fff;
+            border: solid 1px #DADFE5;
+            border-radius: 4px;
+            margin-right: 16px;
+            font-size: 12px;
+            line-height: 18px;
+            box-sizing: border-box;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 110px;
+            margin-bottom: 16px
+        }
+
+        .knowledgeList li:hover {
+            background: #CEE4F8
+        }
+
+        .knowledgePointBx {
+            margin-top: 16px
+        }
+
+        .knowledgePointBx .answerCon {
+            width: calc(100% - 70px)
+        }
+
+        .knowledgePointBx .answerCon ul li {
+            padding: 0;
+            max-width: none
+        }
+
+        .knowledgePointBx .answerCon ul li a {
+            padding: 6px 14px;
+            display: block;
+            max-width: 300px;
+            color: #8A8B99;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+
+        .knowledgePointBx .answerCon ul li a:hover {
+            color: #3A8BFF
+        }
+
+        /*知识点样式*/
+        .selfMarkScore {
+            line-height: 29px;
+            padding: 0 10px;
+            height: 29px;
+            background: rgba(251, 251, 251, 1);
+            border-radius: 99px;
+            border: 1px solid #F4F5F6;
+            margin-top: 55px;
+        }
+
+        .ans-cc pre,
+        .ans-cc code {
+            white-space: pre-wrap !important;
+        }
+    </style>
+    <style>
+        .workTextWrap * {
+            white-space: normal !important;
+        }
+    </style>
+    <link rel="stylesheet" type="text/css"
+        href="//mooc1.chaoxing.com/mooc-ans/mooc2/css/work/questionCommon.css?v=2026-0521-1600" />
+    <link href="//mooc1.chaoxing.com/mooc-ans/mooc2/css/font.css?v=2025-0403-1500" rel="stylesheet" type="text/css" />
+    <link href="//mooc1.chaoxing.com/mooc-ans/css/questionBank/questionBankUsual.css?v=2019-1120-1400" type="text/css"
+        rel="stylesheet" />
+    <script type="text/javascript" src="//mooc-res2.chaoxing.com/mooc-ans/js/common/jquery.min.js"></script>
+    <script type="text/javascript" src="//mooc-res2.chaoxing.com/mooc-ans/js/common/jquery-migrate.min.js"></script>
+    <script type="text/javascript" src="//mooc1.chaoxing.com/mooc-ans/js/jquery.nicescroll.min.js"></script>
+    <script type="text/javascript" src="//mooc1.chaoxing.com/mooc-ans/mooc2/js/poptoast.js"></script>
+    <script type="text/javascript" src="//mooc1.chaoxing.com/mooc-ans/mooc2/js/poplayout.js?v=2022-0218-1500"></script>
+    <script type="text/javascript" src="//mooc1.chaoxing.com/mooc-ans/mooc2/js/viewStudent.js"></script>
+    <script src="//mooc1.chaoxing.com/mooc-ans/js/util/imgUtil.js?v=2025-1128-1100"></script>
+    <script src="//mooc1.chaoxing.com/mooc-ans/space/work/js/attach-mark.js?v=2026-0109-1600"></script>
+    <script type="text/javascript"
+        src="//mooc1.chaoxing.com/mooc-ans/mooc2/js/animation-question.js?v=2023-0216-1800"></script>
+    <script type="text/javascript"
+        src="//mooc1.chaoxing.com/mooc-ans/js/work/stu-knowledge-point-hover.js?v=2025-0707-1021"></script>
+    <script type="text/javascript">window.SUPPORT_AUDIO_SETTING = true; window.SUPPORT_AUDIO_CONTROL = true;</script>
+    <script src="//mooc1.chaoxing.com/mooc-ans/js/work/work-audio-playtimes.js?v=2024-0104-1500"></script>
+
+    <input type="hidden" id="fromDevice" value="mooc2" />
+
+    <div class="maskDiv" style="display:none;z-index:1000;" id="audioLimitTimesWinNew">
+        <div class="popSetDiv wid440">
+            <div class="popHead RadisTop">
+                <a href="javascript:;" class="popClose fr" onclick="$('#audioLimitTimesWinNew').fullFadeOut();">
+                    <img src="//mooc1.chaoxing.com/mooc-ans/mooc2/images/popClose.png" />
+                </a>
+                <p class="fl fs18 color1">提示</p>
+            </div>
+            <div class="het62"></div>
+            <p class="popWord fs16 color2 audioLimitTimesTip">此附件仅支持打开 <span></span> 次，你已打开 <span></span> 次，不能再次打开</p>
+            <div class="popBottom RadisBom">
+                <a href="javascript:;" class="jb_btn jb_btn_92 fr fs14"
+                    onclick="$('#audioLimitTimesWinNew').fullFadeOut();">知道了</a>
+            </div>
+            <div class="het72"></div>
+        </div>
+    </div>
+
+    <div class="AlertCon02" style="width:400px; height:200px;display:none;" id="audioLimitTimesWin">
+        <h3 class="clearfix">
+            <a href="javascript:;" class="closed02 fr"
+                onclick="WAY.box.hide();$('#audioLimitTimesWin').css('display','none')" style="margin-top:1px;"></a>
+        </h3>
+        <div class="con03">
+            <p class="audioLimitTimesTip" style="margin-top:16px;text-align:left;">此附件仅支持打开 <span></span> 次，你已打开
+                <span></span> 次，不能再次打开</p>
+            <div style="margin-top:60px;">
+                <a class="bluebtn" href="javascript:;"
+                    onclick="WAY.box.hide();$('#audioLimitTimesWin').css('display','none')">知道了</a>
+            </div>
+        </div>
+    </div>
+</head>
+
+<body>
+    <script src="//mooc1.chaoxing.com/mooc-ans/space/work/js/preview-attach.js?v=2023-1102-1900"></script>
+    <link href="//mooc1.chaoxing.com/mooc-ans/css/work/viewer.min.css?v=2021-0830-1700" rel="stylesheet"
+        type="text/css" />
+    <script type="text/javascript" src="//mooc1.chaoxing.com/mooc-ans/js/jquery.md5.js"></script>
+    <script type="text/javascript"
+        src="//mooc1.chaoxing.com/mooc-ans/space/work/js/viewer-jquery.min.js?v=2025-1128-1511"></script>
+    <script type="text/javascript">
+        try {
+            $(function () {
+                var imgList = $(".TiMu").find("div img:not(.workAttach img, .attach img, .attachNew img, .stuAnswerArea img, .popClose img, .ans-formula-moudle, .no_view)");
+                for (var i = 0, len = imgList.size(); i < len; i++) {
+                    var src = imgList.eq(i).attr("src");
+                    if (src) {
+                        var index = src.indexOf("375_1024");
+                        if (index != -1) {
+                            src = src.replace("375_1024", "origin");
+                        }
+                        var index2 = src.indexOf("750_1024");
+                        if (index2 != -1) {
+                            src = src.replace("750_1024", "origin");
+                        }
+                        imgList.eq(i).attr("data-original", src);
+                    }
+                }
+                $(".TiMu").find("div img:not(.workAttach img, .attach img, .attachNew img, .stuAnswerArea img, .popClose img, .no_view)").viewer({
+                    url: 'data-original',
+                });
+            })
+        } catch (error) { }
+    </script>
+
+
+    <input type="hidden" id="courseId" value="250009446" />
+    <input type="hidden" id="classId" value="139341094" />
+    <input type="hidden" id="cpi" value="408105850" />
+    <input type="hidden" id="workId" value="52785453" />
+    <input type="hidden" id="answerId" value="56616425" />
+    <input type="hidden" id="enc" value="df7176e05b1428a706c83514f0985d82" />
+    <input type="hidden" id="creatorId" value="408105850" />
+
+    <div class="subNav">作业详情</div>
+    <div class="het40"></div>
+    <div class="fanyaMarking TiMu" id="fanyaMarking">
+        <div class="fanyaMarking_left whiteBg">
+            <div class="borderBom padBom20 detailsHead" style="overflow: hidden;">
+                <h2 class="mark_title" tabindex="0">第四章稀疏矩阵与广义表</h2>
+                <div class="infoHead fl" tabindex="0">
+                    <span>题量: 35</span>
+                    <span>满分: 100</span>
+                    <div style="margin-top: 10px;margin-left: -9px;">
+                        <p class="rightBord">作答时间:<em>04-23 12:08</em>至<em>04-29 12:08</em></p>
+                    </div>
+                </div>
+
+                <div class="analysisCard fl">
+                    <a target="_blank"
+                            class="custom-style"></i>智能分析</a>
+                </div>
+
+            </div>
+
+            <div class="mark_table padTop60 ans-cc fontLabel">
+
+
+                <div class="mark_item">
+                    <h2 class="type_tit" tabindex="0">一. 单选题（共10题，20分）</h2>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004764"
+                        data="215004764" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">1. <span class="colorShallow">(单选题,
+                                        2分)</span><span
+                                        class="qtContent workTextWrap">稀疏矩阵一般采用(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)进行压缩存储。</span>
+                                </h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0" class="workTextWrap">A. 链式存储</li>
+                                    <li tabindex="0" class="workTextWrap">B. 顺序存储</li>
+                                    <li tabindex="0" class="workTextWrap">C. 二维数组</li>
+                                    <li tabindex="0" class="workTextWrap">D. 三元组表</li>
+                                </ul>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">D</span></span>
+                                        <span class="element-invisible-hidden colorDeep marginRight40 fl">:三元组表; </span>
+                                        <span class="colorGreen marginRight40 fl"><i
+                                                class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent workTextWrap">D</span></span>
+                                        <span class="element-invisible-hidden colorGreen marginRight40 fl">:三元组表;
+                                        </span>
+                                    </div>
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004764', '0', '单选题', 'b13e6c19abea4e809af1558a6d47a47e', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004768"
+                        data="215004768" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">2. <span class="colorShallow">(单选题,
+                                        2分)</span><span class="qtContent workTextWrap">广义表 (a,(b,c),d)
+                                        的表头是(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</span></h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0" class="workTextWrap">A. (a,(b,c),d)</li>
+                                    <li tabindex="0" class="workTextWrap">B. a</li>
+                                    <li tabindex="0" class="workTextWrap">C. (b,c)</li>
+                                    <li tabindex="0" class="workTextWrap">D. (a)</li>
+                                </ul>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">B</span></span>
+                                        <span class="element-invisible-hidden colorDeep marginRight40 fl">:a; </span>
+                                        <span class="colorGreen marginRight40 fl"><i
+                                                class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent workTextWrap">B</span></span>
+                                        <span class="element-invisible-hidden colorGreen marginRight40 fl">:a; </span>
+                                    </div>
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004768', '0', '单选题', '4c2a6ef2561c4f7e8b2a9f9eb561fadc', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004773"
+                        data="215004773" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">3. <span class="colorShallow">(单选题,
+                                        2分)</span><span class="qtContent workTextWrap">
+                                        <p>稀疏矩阵采用三元组表存储后，其矩阵加法运算的时间复杂度主要取决于(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)
+                                        </p>
+                                    </span></h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0" class="workTextWrap">A. <p>非零元的个数</p>
+                                    </li>
+                                    <li tabindex="0" class="workTextWrap">B. <p>矩阵的行数</p>
+                                    </li>
+                                    <li tabindex="0" class="workTextWrap">C. <p>矩阵的列数</p>
+                                    </li>
+                                    <li tabindex="0" class="workTextWrap">D. <p>矩阵的阶数</p>
+                                    </li>
+                                </ul>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">A</span></span>
+                                        <span class="element-invisible-hidden colorDeep marginRight40 fl">:非零元的个数;
+                                        </span>
+                                        <span class="colorGreen marginRight40 fl"><i
+                                                class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent workTextWrap">A</span></span>
+                                        <span class="element-invisible-hidden colorGreen marginRight40 fl">:非零元的个数;
+                                        </span>
+                                    </div>
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="analysisDiv">
+                                        <div class="analysis"><i class="custom-style">答案解析：</i><span
+                                                class="qtAnalysis workTextWrap">
+                                                <p>C<br /></p>
+                                            </span></div>
+                                    </div>
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004773', '0', '单选题', '8bd98703db694029bdb44e67ec04cffd', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004771"
+                        data="215004771" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">4. <span class="colorShallow">(单选题,
+                                        2分)</span><span
+                                        class="qtContent workTextWrap">稀疏矩阵压缩存储的目的是(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</span>
+                                </h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0" class="workTextWrap">A. 便于输入输出</li>
+                                    <li tabindex="0" class="workTextWrap">B. 便于运算</li>
+                                    <li tabindex="0" class="workTextWrap">C. 节省存储空间</li>
+                                    <li tabindex="0" class="workTextWrap">D. 提高运算速度</li>
+                                </ul>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">C</span></span>
+                                        <span class="element-invisible-hidden colorDeep marginRight40 fl">:节省存储空间;
+                                        </span>
+                                        <span class="colorGreen marginRight40 fl"><i
+                                                class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent workTextWrap">C</span></span>
+                                        <span class="element-invisible-hidden colorGreen marginRight40 fl">:节省存储空间;
+                                        </span>
+                                    </div>
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004771', '0', '单选题', '4018e2ddea6b437abbed6e9567a65a27', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004770"
+                        data="215004770" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">5. <span class="colorShallow">(单选题,
+                                        2分)</span><span class="qtContent workTextWrap">广义表
+                                        ((&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;))
+                                        的长度和深度分别为(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</span></h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0" class="workTextWrap">A. 2和1</li>
+                                    <li tabindex="0" class="workTextWrap">B. 1和2</li>
+                                    <li tabindex="0" class="workTextWrap">C. 1和1</li>
+                                    <li tabindex="0" class="workTextWrap">D. 2和2</li>
+                                </ul>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">B</span></span>
+                                        <span class="element-invisible-hidden colorDeep marginRight40 fl">:1和2; </span>
+                                        <span class="colorGreen marginRight40 fl"><i
+                                                class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent workTextWrap">B</span></span>
+                                        <span class="element-invisible-hidden colorGreen marginRight40 fl">:1和2; </span>
+                                    </div>
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="analysisDiv">
+                                        <div class="analysis"><i class="custom-style">答案解析：</i><span
+                                                class="qtAnalysis workTextWrap">B(长度为1(只有一个空表元素)，深度为2:外层深度1，内层空表深度1，总深度=1+1=2)</span>
+                                        </div>
+                                    </div>
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004770', '0', '单选题', '92213f0f65514e05bc46755537ece3be', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004769"
+                        data="215004769" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">6. <span class="colorShallow">(单选题,
+                                        2分)</span><span
+                                        class="qtContent workTextWrap">十字链表存储稀疏矩阵时，每个非零元结点包含的指针域有(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</span>
+                                </h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0" class="workTextWrap">A. 1个</li>
+                                    <li tabindex="0" class="workTextWrap">B. 2个</li>
+                                    <li tabindex="0" class="workTextWrap">C. 4个</li>
+                                    <li tabindex="0" class="workTextWrap">D. 3个</li>
+                                </ul>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">C</span></span>
+                                        <span class="element-invisible-hidden colorDeep marginRight40 fl">:4个; </span>
+                                        <span class="colorGreen marginRight40 fl"><i
+                                                class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent workTextWrap">B</span></span>
+                                        <span class="element-invisible-hidden colorGreen marginRight40 fl">:2个; </span>
+                                    </div>
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_cuo"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004769', '0', '单选题', '7f7d736daff94420a3d619eea409c21a', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004765"
+                        data="215004765" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">7. <span class="colorShallow">(单选题,
+                                        2分)</span><span
+                                        class="qtContent workTextWrap">一个稀疏矩阵采用三元组表存储，其三元组表中的每个结点包含(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)个域。</span>
+                                </h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0" class="workTextWrap">A. 2</li>
+                                    <li tabindex="0" class="workTextWrap">B. 1</li>
+                                    <li tabindex="0" class="workTextWrap">C. 4</li>
+                                    <li tabindex="0" class="workTextWrap">D. 3</li>
+                                </ul>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">D</span></span>
+                                        <span class="element-invisible-hidden colorDeep marginRight40 fl">:3; </span>
+                                        <span class="colorGreen marginRight40 fl"><i
+                                                class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent workTextWrap">D</span></span>
+                                        <span class="element-invisible-hidden colorGreen marginRight40 fl">:3; </span>
+                                    </div>
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004765', '0', '单选题', '6f29b158b15147c698d9ea7e9227c7fe', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004766"
+                        data="215004766" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">8. <span class="colorShallow">(单选题,
+                                        2分)</span><span class="qtContent workTextWrap">对于广义表
+                                        A=(a,b,(c,d),e)，其深度为(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</span>
+                                </h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0" class="workTextWrap">A. 1</li>
+                                    <li tabindex="0" class="workTextWrap">B. 3</li>
+                                    <li tabindex="0" class="workTextWrap">C. 2</li>
+                                    <li tabindex="0" class="workTextWrap">D. 4</li>
+                                </ul>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">C</span></span>
+                                        <span class="element-invisible-hidden colorDeep marginRight40 fl">:2; </span>
+                                        <span class="colorGreen marginRight40 fl"><i
+                                                class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent workTextWrap">C</span></span>
+                                        <span class="element-invisible-hidden colorGreen marginRight40 fl">:2; </span>
+                                    </div>
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004766', '0', '单选题', 'e38fb126bab24f0fa2a2fd1600da10c7', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004767"
+                        data="215004767" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">9. <span class="colorShallow">(单选题,
+                                        2分)</span><span
+                                        class="qtContent workTextWrap">稀疏矩阵的快速转置算法与普通转置算法相比，其主要改进在于(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</span>
+                                </h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0" class="workTextWrap">A. 减少了循环次数</li>
+                                    <li tabindex="0" class="workTextWrap">B. 改变了存储结构</li>
+                                    <li tabindex="0" class="workTextWrap">C. 不需要存储行下标</li>
+                                    <li tabindex="0" class="workTextWrap">D. 使用了辅助数组确定每个非零元在转置矩阵中的位置</li>
+                                </ul>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">D</span></span>
+                                        <span
+                                            class="element-invisible-hidden colorDeep marginRight40 fl">:使用了辅助数组确定每个非零元在转置矩阵中的位置;
+                                        </span>
+                                        <span class="colorGreen marginRight40 fl"><i
+                                                class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent workTextWrap">D</span></span>
+                                        <span
+                                            class="element-invisible-hidden colorGreen marginRight40 fl">:使用了辅助数组确定每个非零元在转置矩阵中的位置;
+                                        </span>
+                                    </div>
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004767', '0', '单选题', 'dae3faa20aa34801adcd0fb6ab222bf6', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004772"
+                        data="215004772" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">10. <span class="colorShallow">(单选题,
+                                        2分)</span><span class="qtContent workTextWrap">已知广义表 L=((a,b),c,(d,e))，则取表尾操作
+                                        GetTail(L) 的结果是(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</span></h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0" class="workTextWrap">A. )</li>
+                                    <li tabindex="0" class="workTextWrap">B. (c)</li>
+                                    <li tabindex="0" class="workTextWrap">C. (c,(d,e))</li>
+                                    <li tabindex="0" class="workTextWrap">D. (c,(d,</li>
+                                    <li tabindex="0" class="workTextWrap">E. ((d,e))</li>
+                                </ul>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">C</span></span>
+                                        <span class="element-invisible-hidden colorDeep marginRight40 fl">:(c,(d,e));
+                                        </span>
+                                        <span class="colorGreen marginRight40 fl"><i
+                                                class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent workTextWrap">C</span></span>
+                                        <span class="element-invisible-hidden colorGreen marginRight40 fl">:(c,(d,e));
+                                        </span>
+                                    </div>
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="analysisDiv">
+                                        <div class="analysis"><i class="custom-style">答案解析：</i><span
+                                                class="qtAnalysis workTextWrap">A(表尾是除第一个元素外的其余元素组成的表，即
+                                                (c,(d,e)))</span></div>
+                                    </div>
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004772', '0', '单选题', '7bb9ab1580b54e289449ca9c87267ae6', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+                </div>
+
+
+                <div class="mark_item">
+                    <h2 class="type_tit" tabindex="0">二. 多选题（共7题，28分）</h2>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004778"
+                        data="215004778" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">11. <span class="colorShallow">(多选题,
+                                        4分)</span><span
+                                        class="qtContent workTextWrap">广义表的存储结构通常有(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</span>
+                                </h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0" class="workTextWrap">A. 顺序存储</li>
+                                    <li tabindex="0" class="workTextWrap">B. 扩展线性表存储</li>
+                                    <li tabindex="0" class="workTextWrap">C. 散列存储</li>
+                                    <li tabindex="0" class="workTextWrap">D. 头尾链表存储</li>
+                                </ul>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">BD</span></span>
+                                        <span class="element-invisible-hidden colorDeep marginRight40 fl">:扩展线性表存储;
+                                            头尾链表存储; </span>
+                                        <span class="colorGreen marginRight40 fl"><i
+                                                class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent workTextWrap">BD</span></span>
+                                        <span class="element-invisible-hidden colorGreen marginRight40 fl">:扩展线性表存储;
+                                            头尾链表存储; </span>
+                                    </div>
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004778', '1', '多选题', 'b7fd0a35ff1c4cb09e1a5b48cfbce3c0', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004777"
+                        data="215004777" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">12. <span class="colorShallow">(多选题,
+                                        4分)</span><span
+                                        class="qtContent workTextWrap">稀疏矩阵的十字链表存储结构中，每个非零元结点包含的域有(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</span>
+                                </h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0" class="workTextWrap">A. 行号</li>
+                                    <li tabindex="0" class="workTextWrap">B. 指向同一行下一个非零元的指针和指向同一列下一个非零元的指针</li>
+                                    <li tabindex="0" class="workTextWrap">C. 元素值</li>
+                                    <li tabindex="0" class="workTextWrap">D. 列号</li>
+                                </ul>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">ABCD</span></span>
+                                        <span class="element-invisible-hidden colorDeep marginRight40 fl">:行号;
+                                            指向同一行下一个非零元的指针和指向同一列下一个非零元的指针; 元素值; 列号; </span>
+                                        <span class="colorGreen marginRight40 fl"><i
+                                                class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent workTextWrap">ABCD</span></span>
+                                        <span class="element-invisible-hidden colorGreen marginRight40 fl">:行号;
+                                            指向同一行下一个非零元的指针和指向同一列下一个非零元的指针; 元素值; 列号; </span>
+                                    </div>
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004777', '1', '多选题', '7a951bac1b414be0b579f577aed3a6d4', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004775"
+                        data="215004775" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">13. <span class="colorShallow">(多选题,
+                                        4分)</span><span
+                                        class="qtContent workTextWrap">关于广义表的说法正确的有(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</span>
+                                </h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0" class="workTextWrap">A. 广义表的元素可以是原子或子表</li>
+                                    <li tabindex="0" class="workTextWrap">B. 广义表可以为空</li>
+                                    <li tabindex="0" class="workTextWrap">C. 广义表是线性表的推广</li>
+                                    <li tabindex="0" class="workTextWrap">D. 广义表的长度是指最外层包含的元素个数</li>
+                                </ul>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">ABCD</span></span>
+                                        <span
+                                            class="element-invisible-hidden colorDeep marginRight40 fl">:广义表的元素可以是原子或子表;
+                                            广义表可以为空; 广义表是线性表的推广; 广义表的长度是指最外层包含的元素个数; </span>
+                                        <span class="colorGreen marginRight40 fl"><i
+                                                class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent workTextWrap">ABCD</span></span>
+                                        <span
+                                            class="element-invisible-hidden colorGreen marginRight40 fl">:广义表的元素可以是原子或子表;
+                                            广义表可以为空; 广义表是线性表的推广; 广义表的长度是指最外层包含的元素个数; </span>
+                                    </div>
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004775', '1', '多选题', 'ea6ddd16cb7548089f5beef44db671ee', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004774"
+                        data="215004774" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">14. <span class="colorShallow">(多选题,
+                                        4分)</span><span
+                                        class="qtContent workTextWrap">稀疏矩阵的压缩存储方法包括(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</span>
+                                </h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0" class="workTextWrap">A. 三元组顺序表</li>
+                                    <li tabindex="0" class="workTextWrap">B. 二维数组</li>
+                                    <li tabindex="0" class="workTextWrap">C. 行逻辑链接的顺序表</li>
+                                    <li tabindex="0" class="workTextWrap">D. 十字链表</li>
+                                </ul>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">ACD</span></span>
+                                        <span class="element-invisible-hidden colorDeep marginRight40 fl">:三元组顺序表;
+                                            行逻辑链接的顺序表; 十字链表; </span>
+                                        <span class="colorGreen marginRight40 fl"><i
+                                                class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent workTextWrap">ACD</span></span>
+                                        <span class="element-invisible-hidden colorGreen marginRight40 fl">:三元组顺序表;
+                                            行逻辑链接的顺序表; 十字链表; </span>
+                                    </div>
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004774', '1', '多选题', '24b09e49bb6f47f69443e95c6bddeb7f', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004780"
+                        data="215004780" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">15. <span class="colorShallow">(多选题,
+                                        4分)</span><span
+                                        class="qtContent workTextWrap">广义表的深度计算规则包括(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</span>
+                                </h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0" class="workTextWrap">A. 空表的深度为1</li>
+                                    <li tabindex="0" class="workTextWrap">B. 非空表的深度等于元素个数</li>
+                                    <li tabindex="0" class="workTextWrap">C. 原子的深度为0</li>
+                                    <li tabindex="0" class="workTextWrap">D. 非空表的深度等于所有元素深度的最大值加1</li>
+                                </ul>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">ACD</span></span>
+                                        <span class="element-invisible-hidden colorDeep marginRight40 fl">:空表的深度为1;
+                                            原子的深度为0; 非空表的深度等于所有元素深度的最大值加1; </span>
+                                        <span class="colorGreen marginRight40 fl"><i
+                                                class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent workTextWrap">ACD</span></span>
+                                        <span class="element-invisible-hidden colorGreen marginRight40 fl">:空表的深度为1;
+                                            原子的深度为0; 非空表的深度等于所有元素深度的最大值加1; </span>
+                                    </div>
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004780', '1', '多选题', '0ed64f62b8a841d89adccc796adea91b', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004776"
+                        data="215004776" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">16. <span class="colorShallow">(多选题,
+                                        4分)</span><span
+                                        class="qtContent workTextWrap">在稀疏矩阵的三元组表中，通常按(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)顺序存储。</span>
+                                </h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0" class="workTextWrap">A. 按值的大小</li>
+                                    <li tabindex="0" class="workTextWrap">B. 行主序</li>
+                                    <li tabindex="0" class="workTextWrap">C. 任意顺序</li>
+                                    <li tabindex="0" class="workTextWrap">D. 列主序</li>
+                                </ul>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">BD</span></span>
+                                        <span class="element-invisible-hidden colorDeep marginRight40 fl">:行主序; 列主序;
+                                        </span>
+                                        <span class="colorGreen marginRight40 fl"><i
+                                                class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent workTextWrap">BD</span></span>
+                                        <span class="element-invisible-hidden colorGreen marginRight40 fl">:行主序; 列主序;
+                                        </span>
+                                    </div>
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="analysisDiv">
+                                        <div class="analysis"><i class="custom-style">答案解析：</i><span
+                                                class="qtAnalysis workTextWrap">AB(通常按行主序，也可按列主序)</span></div>
+                                    </div>
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004776', '1', '多选题', '3261d9f4679a471c8d9b81d0070e9316', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004782"
+                        data="215004782" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">17. <span class="colorShallow">(多选题,
+                                        4分)</span><span
+                                        class="qtContent workTextWrap">关于广义表的表头和表尾，下列说法正确的有(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</span>
+                                </h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0" class="workTextWrap">A. 表头可以是原子或子表</li>
+                                    <li tabindex="0" class="workTextWrap">B. 表尾一定是子表</li>
+                                    <li tabindex="0" class="workTextWrap">C. 空表没有表头和表尾</li>
+                                    <li tabindex="0" class="workTextWrap">D. 非空表可以多次取表尾得到空表</li>
+                                </ul>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">ABCD</span></span>
+                                        <span class="element-invisible-hidden colorDeep marginRight40 fl">:表头可以是原子或子表;
+                                            表尾一定是子表; 空表没有表头和表尾; 非空表可以多次取表尾得到空表; </span>
+                                        <span class="colorGreen marginRight40 fl"><i
+                                                class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent workTextWrap">ABCD</span></span>
+                                        <span class="element-invisible-hidden colorGreen marginRight40 fl">:表头可以是原子或子表;
+                                            表尾一定是子表; 空表没有表头和表尾; 非空表可以多次取表尾得到空表; </span>
+                                    </div>
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004782', '1', '多选题', '747ca8ada2804d54bb371d5ccdc88f88', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+                </div>
+
+
+                <div class="mark_item">
+                    <h2 class="type_tit" tabindex="0">三. 填空题（共7题，15分）</h2>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004789"
+                        data="215004789" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">18. <span class="colorShallow">(填空题,
+                                        2.2分)</span><span
+                                        class="qtContent workTextWrap">广义表的存储结构通常采用____链表，结点分为原子结点和表结点两种。</span></h3>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div>
+                                        <dl class="mark_fill colorDeep" id="qb215004789">
+                                            <dt class="positionStyle">
+                                                <i class="fontWeight custom-style">我的答案：</i>
+                                            </dt>
+
+                                            <dd>
+                                                <span class="answer_span textwrap stuAnswerContent"
+                                                    style="display:inline-block;width:94%;">(1) <p>头尾<br /></p></span>
+                                                <span class="marking_dui"></span>
+                                            </dd>
+                                        </dl>
+
+                                        <dl class="mark_fill colorGreen">
+                                            <dt><i class="fontWeight custom-style">正确答案：</i></dt>
+                                            <dd class="rightAnswerContent workTextWrap">(1) 头尾</dd>
+                                        </dl>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004789', '2', '填空题', '37afddc3b14547c6acbaeea8d8d5f22e', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004787"
+                        data="215004787" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">19. <span class="colorShallow">(填空题,
+                                        2.1分)</span><span class="qtContent workTextWrap">
+                                        <p>在十字链表中，稀疏矩阵的每一行和每一列分别构成一个____。</p>
+                                    </span></h3>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div>
+                                        <dl class="mark_fill colorDeep" id="qb215004787">
+                                            <dt class="positionStyle">
+                                                <i class="fontWeight custom-style">我的答案：</i>
+                                            </dt>
+
+                                            <dd>
+                                                <span class="answer_span textwrap stuAnswerContent"
+                                                    style="display:inline-block;width:94%;">(1) <p>行单链表</p></span>
+                                                <span class="marking_cuo"></span>
+                                            </dd>
+
+                                            <dd>
+                                                <span class="answer_span textwrap stuAnswerContent"
+                                                    style="display:inline-block;width:94%;">(2) <p>列单链表</p></span>
+                                                <span class="marking_cuo"></span>
+                                            </dd>
+
+                                            <dd>
+                                                <span class="answer_span textwrap stuAnswerContent"
+                                                    style="display:inline-block;width:94%;">(3) <p>单链表</p></span>
+                                                <span class="marking_cuo"></span>
+                                            </dd>
+                                        </dl>
+
+                                        <dl class="mark_fill colorGreen">
+                                            <dt><i class="fontWeight custom-style">正确答案：</i></dt>
+                                            <dd class="rightAnswerContent workTextWrap">(1) <p>循环链表</p>
+                                            </dd>
+                                            <dd class="rightAnswerContent workTextWrap">(2) <p><span
+                                                        style="white-space: normal;">链表</span></p>
+                                            </dd>
+                                            <dd class="rightAnswerContent workTextWrap">(3) <p><span
+                                                        st·yle="white-space: normal;">单向链表</span></p>
+                                            </dd>
+                                        </dl>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004787', '2', '填空题', 'fb3a88ad032543fe93a4849c8bb97a4c', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004785"
+                        data="215004785" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">20. <span class="colorShallow">(填空题,
+                                        2.1分)</span><span
+                                        class="qtContent workTextWrap">稀疏矩阵的三元组表中，每个元素用____、____和____三个量表示。</span></h3>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div>
+                                        <dl class="mark_fill colorDeep" id="qb215004785">
+                                            <dt class="positionStyle">
+                                                <i class="fontWeight custom-style">我的答案：</i>
+                                            </dt>
+
+                                            <dd>
+                                                <span class="answer_span textwrap stuAnswerContent"
+                                                    style="display:inline-block;width:94%;">(1) <p>行号<br /></p></span>
+                                                <span class="marking_cuo"></span>
+                                            </dd>
+
+                                            <dd>
+                                                <span class="answer_span textwrap stuAnswerContent"
+                                                    style="display:inline-block;width:94%;">(2) <p>列号</p></span>
+                                                <span class="marking_cuo"></span>
+                                            </dd>
+
+                                            <dd>
+                                                <span class="answer_span textwrap stuAnswerContent"
+                                                    style="display:inline-block;width:94%;">(3) <p>元素值</p></span>
+                                                <span class="marking_cuo"></span>
+                                            </dd>
+                                        </dl>
+
+                                        <dl class="mark_fill colorGreen">
+                                            <dt><i class="fontWeight custom-style">正确答案：</i></dt>
+                                            <dd class="rightAnswerContent workTextWrap">(1) 行下标</dd>
+                                            <dd class="rightAnswerContent workTextWrap">(2) 列下标</dd>
+                                            <dd class="rightAnswerContent workTextWrap">(3) 值</dd>
+                                        </dl>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004785', '2', '填空题', 'ba4a0be6047c49ae8a0f879ba8dfe0da', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004784"
+                        data="215004784" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">21. <span class="colorShallow">(填空题,
+                                        2.1分)</span><span
+                                        class="qtContent workTextWrap">稀疏矩阵是指矩阵中____元素个数远远多于____元素个数的矩阵。</span></h3>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div>
+                                        <dl class="mark_fill colorDeep" id="qb215004784">
+                                            <dt class="positionStyle">
+                                                <i class="fontWeight custom-style">我的答案：</i>
+                                            </dt>
+
+                                            <dd>
+                                                <span class="answer_span textwrap stuAnswerContent"
+                                                    style="display:inline-block;width:94%;">(1) <p>零</p></span>
+                                                <span class="marking_dui"></span>
+                                            </dd>
+
+                                            <dd>
+                                                <span class="answer_span textwrap stuAnswerContent"
+                                                    style="display:inline-block;width:94%;">(2) <p>非零</p></span>
+                                                <span class="marking_dui"></span>
+                                            </dd>
+                                        </dl>
+
+                                        <dl class="mark_fill colorGreen">
+                                            <dt><i class="fontWeight custom-style">正确答案：</i></dt>
+                                            <dd class="rightAnswerContent workTextWrap">(1) 零</dd>
+                                            <dd class="rightAnswerContent workTextWrap">(2) 非零</dd>
+                                        </dl>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004784', '2', '填空题', 'a63147e71b0c41b39ca17cee917ad041', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004790"
+                        data="215004790" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">22. <span class="colorShallow">(填空题,
+                                        2.2分)</span><span class="qtContent workTextWrap">
+                                        <p>设广义表 C = (a, (b, c), d)，执行 GetHead(GetTail(GetTail(C))) 的结果是____。</p>
+                                    </span></h3>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div>
+                                        <dl class="mark_fill colorDeep" id="qb215004790">
+                                            <dt class="positionStyle">
+                                                <i class="fontWeight custom-style">我的答案：</i>
+                                            </dt>
+
+                                            <dd>
+                                                <span class="answer_span textwrap stuAnswerContent"
+                                                    style="display:inline-block;width:94%;">(1) <p>d</p></span>
+                                                <span class="marking_dui"></span>
+                                            </dd>
+                                        </dl>
+
+                                        <dl class="mark_fill colorGreen">
+                                            <dt><i class="fontWeight custom-style">正确答案：</i></dt>
+                                            <dd class="rightAnswerContent workTextWrap">(1) <p>d</p>
+                                            </dd>
+                                        </dl>
+                                    </div>
+
+                                    <div class="analysisDiv">
+                                        <div class="analysis"><i class="custom-style">答案解析：</i><span
+                                                class="qtAnalysis workTextWrap">
+                                                <p><span
+                                                        style="white-space: normal;">先取表尾得((b,c),d)，再取表尾得(d)，再取表头得d?注意:GetTail(C)=((b,c),d);GetTail(GetTail(C))=(d);GetHead((d))=d。但d是原子，答案应为d，若要求子表则写(d)。通常取表头结果为原子。故填d</span>
+                                                </p>
+                                            </span></div>
+                                    </div>
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004790', '2', '填空题', 'f2fc737379af48e4929599e9c896d8a1', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004786"
+                        data="215004786" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">23. <span class="colorShallow">(填空题,
+                                        2.1分)</span><span class="qtContent workTextWrap">广义表的深度定义为广义表中____的最大层数。</span>
+                                </h3>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div>
+                                        <dl class="mark_fill colorDeep" id="qb215004786">
+                                            <dt class="positionStyle">
+                                                <i class="fontWeight custom-style">我的答案：</i>
+                                            </dt>
+
+                                            <dd>
+                                                <span class="answer_span textwrap stuAnswerContent"
+                                                    style="display:inline-block;width:94%;">(1) <p>括号嵌套</p></span>
+                                                <span class="marking_dui"></span>
+                                            </dd>
+                                        </dl>
+
+                                        <dl class="mark_fill colorGreen">
+                                            <dt><i class="fontWeight custom-style">正确答案：</i></dt>
+                                            <dd class="rightAnswerContent workTextWrap">(1) 括号嵌套</dd>
+                                        </dl>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004786', '2', '填空题', 'a3ab0e7b12354f3ca33e19f109083baf', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004815"
+                        data="215004815" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">24. <span class="colorShallow">(填空题,
+                                        2.2分)</span><span class="qtContent workTextWrap">
+                                        <p><span style="font-size:15px;line-height:115%;font-family:宋体">一个广义表 E = (a,
+                                                (b, c), d)，其表头是______，表尾是______。</span></p>
+                                    </span></h3>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div>
+                                        <dl class="mark_fill colorDeep" id="qb215004815">
+                                            <dt class="positionStyle">
+                                                <i class="fontWeight custom-style">我的答案：</i>
+                                            </dt>
+
+                                            <dd>
+                                                <span class="answer_span textwrap stuAnswerContent"
+                                                    style="display:inline-block;width:94%;">(1) <p>
+                                                        a&nbsp;&nbsp;&nbsp;&nbsp;（（b,c),d)</p></span>
+                                                <span class="marking_dui"></span>
+                                            </dd>
+                                        </dl>
+
+                                        <dl class="mark_fill colorGreen">
+                                            <dt><i class="fontWeight custom-style">正确答案：</i></dt>
+                                            <dd class="rightAnswerContent workTextWrap">(1) <p><span
+                                                        style="font-size:15px;line-height:115%;font-family:宋体">a</span><span
+                                                        style="font-size:15px;line-height:115%;font-family:宋体">；((b,c),d)</span>
+                                                </p>
+                                            </dd>
+                                        </dl>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004815', '2', '填空题', '1b7dcb904a9d4ca78e186273f9d2b35b', '2', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+                </div>
+
+
+                <div class="mark_item">
+                    <h2 class="type_tit" tabindex="0">四. 判断题（共8题，22分）</h2>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004791"
+                        data="215004791" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">25. <span class="colorShallow">(判断题,
+                                        2.7分)</span><span
+                                        class="qtContent workTextWrap">稀疏矩阵的非零元个数远小于零元个数，因此压缩存储一定比二维数组节省空间。</span></h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0">A. 对</li>
+                                    <li tabindex="0">B. 错</li>
+                                </ul>
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">错</span></span>
+                                        <span class="colorGreen marginRight40 fl">
+                                            <i class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent">对</span>
+                                        </span>
+                                    </div>
+
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_cuo"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004791', '3', '判断题', '01eea5c1c6eb477cb9aabb3eb37cce9b', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004794"
+                        data="215004794" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">26. <span class="colorShallow">(判断题,
+                                        2.7分)</span><span class="qtContent workTextWrap">空广义表
+                                        (&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;) 的长度为0，深度为1。</span></h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0">A. 对</li>
+                                    <li tabindex="0">B. 错</li>
+                                </ul>
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">对</span></span>
+                                        <span class="colorGreen marginRight40 fl">
+                                            <i class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent">对</span>
+                                        </span>
+                                    </div>
+
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004794', '3', '判断题', 'c1391c8874ed4214ba25fa7f3aef25b7', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004814"
+                        data="215004814" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">27. <span class="colorShallow">(判断题,
+                                        2.8分)</span><span class="qtContent workTextWrap">
+                                        <p><span style="white-space: normal;">广义表 (a, (b, c)) 与 ( (a, b), c) 相同。</span>
+                                        </p>
+                                    </span></h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0">A. 对</li>
+                                    <li tabindex="0">B. 错</li>
+                                </ul>
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">错</span></span>
+                                        <span class="colorGreen marginRight40 fl">
+                                            <i class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent">错</span>
+                                        </span>
+                                    </div>
+
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004814', '3', '判断题', '52d0fb0e694c4b81b74f33cbe4db2c58', '3', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004792"
+                        data="215004792" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">28. <span class="colorShallow">(判断题,
+                                        2.7分)</span><span class="qtContent workTextWrap">广义表的表尾一定是一个广义表。</span></h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0">A. 对</li>
+                                    <li tabindex="0">B. 错</li>
+                                </ul>
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">对</span></span>
+                                        <span class="colorGreen marginRight40 fl">
+                                            <i class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent">对</span>
+                                        </span>
+                                    </div>
+
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004792', '3', '判断题', '1bc61b6f85b74eb3b23488321fb9d88d', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004818"
+                        data="215004818" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">29. <span class="colorShallow">(判断题,
+                                        2.8分)</span><span class="qtContent workTextWrap">
+                                        <p><span
+                                                style="color: rgb(24, 30, 51); font-family: CXChineseQuote, -apple-system, BlinkMacSystemFont, &quot;Helvetica Neue&quot;, &quot;Segoe UI&quot;, Arial, &quot;PingFang SC&quot;, &quot;Hiragino Sans GB&quot;, &quot;Microsoft YaHei&quot;, sans-serif, &quot;Apple Color Emoji&quot;, &quot;Segoe UI Emoji&quot;, &quot;Segoe UI Symbol&quot;, &quot;Noto Color Emoji&quot;; white-space: normal; background-color: rgb(255, 255, 255);">十字链表中，每一行和每一列的指针都构成循环链表。</span>
+                                        </p>
+                                    </span></h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0">A. 对</li>
+                                    <li tabindex="0">B. 错</li>
+                                </ul>
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">错</span></span>
+                                        <span class="colorGreen marginRight40 fl">
+                                            <i class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent">错</span>
+                                        </span>
+                                    </div>
+
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004818', '3', '判断题', '0e3d1e7044e64cafb754d4ee91554576', '3', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004816"
+                        data="215004816" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">30. <span class="colorShallow">(判断题,
+                                        2.8分)</span><span class="qtContent workTextWrap">
+                                        <p><span style="font-size:15px;line-height:115%;font-family:宋体">广义表 (a, b, c)
+                                                是线性表。</span></p>
+                                    </span></h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0">A. 对</li>
+                                    <li tabindex="0">B. 错</li>
+                                </ul>
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">对</span></span>
+                                        <span class="colorGreen marginRight40 fl">
+                                            <i class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent">对</span>
+                                        </span>
+                                    </div>
+
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004816', '3', '判断题', '98a75fd1872a45658db741ebb8915193', '3', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004793"
+                        data="215004793" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">31. <span class="colorShallow">(判断题,
+                                        2.7分)</span><span
+                                        class="qtContent workTextWrap">稀疏矩阵的快速转置算法中，需要预先知道每一列的非零元个数。</span></h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0">A. 对</li>
+                                    <li tabindex="0">B. 错</li>
+                                </ul>
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">对</span></span>
+                                        <span class="colorGreen marginRight40 fl">
+                                            <i class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent">对</span>
+                                        </span>
+                                    </div>
+
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004793', '3', '判断题', 'e56a3c52be0c49ea8934b0b11dcf5b0d', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004817"
+                        data="215004817" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">32. <span class="colorShallow">(判断题,
+                                        2.8分)</span><span class="qtContent workTextWrap">
+                                        <p><span
+                                                style="color: rgb(24, 30, 51); font-family: CXChineseQuote, -apple-system, BlinkMacSystemFont, &quot;Helvetica Neue&quot;, &quot;Segoe UI&quot;, Arial, &quot;PingFang SC&quot;, &quot;Hiragino Sans GB&quot;, &quot;Microsoft YaHei&quot;, sans-serif, &quot;Apple Color Emoji&quot;, &quot;Segoe UI Emoji&quot;, &quot;Segoe UI Symbol&quot;, &quot;Noto Color Emoji&quot;; white-space: normal; background-color: rgb(255, 255, 255);">稀疏矩阵的三元组表只能按行优先顺序存储，不能按列优先。</span>
+                                        </p>
+                                    </span></h3>
+
+                                <ul class="mark_letter colorDeep qtDetail">
+                                    <li tabindex="0">A. 对</li>
+                                    <li tabindex="0">B. 错</li>
+                                </ul>
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_key clearfix">
+                                        <span class="colorDeep marginRight40 fl"><i
+                                                class="fontWeight custom-style">我的答案:</i><span
+                                                class="stuAnswerContent">错</span></span>
+                                        <span class="colorGreen marginRight40 fl">
+                                            <i class="fontWeight custom-style">正确答案:</i><span
+                                                class="rightAnswerContent">错</span>
+                                        </span>
+                                    </div>
+
+                                    <div class="mark_score">
+                                        <div class=" fl catalog_tishi80">
+                                            <div class="mark_judge_name">
+                                                <span class="marking_dui"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004817', '3', '判断题', '6adf96085990498fb500f89813d1040f', '3', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+                </div>
+
+
+                <div class="mark_item">
+                    <h2 class="type_tit" tabindex="0">五. 简答题（共3题，15分）</h2>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004810"
+                        data="215004810" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">33. <span class="colorShallow">(简答题,
+                                        5分)</span><span
+                                        class="qtContent workTextWrap">写出稀疏矩阵普通转置算法的基本思想，并分析其时间复杂度。</span></h3>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_answer_key pad0">
+                                        <dl class="mark_fill colorDeep" id="qb215004810">
+                                            <dt class="positionStyle"><i class="fontWeight custom-style">我的答案：</i>
+                                                <div class="mark_score">
+                                                </div>
+                                            </dt>
+
+
+                                            <dd class="textwrap stuAnswerContent reserve-newline">
+                                                <p><strong>一、普通转置算法基本思想&nbsp;</strong></p>
+                                                <p>1. 已知原稀疏矩阵三元组表行优先存储；&nbsp;</p>
+                                                <p>2. 按照原矩阵列号从小到大的顺序依次处理每一列；</p>
+                                                <p>3. 对每一列，遍历原矩阵所有三元组，找出列号等于当前列的非零元素；&nbsp;</p>
+                                                <p>4. 将找到的三元组行、列下标互换，依次存入转置后的三元组表中，完成转置。&nbsp;</p>
+                                                <p><strong>二、时间复杂度分析</strong></p>
+                                                <p>设：矩阵行数为
+                                                    m
+                                                    ，列数为
+                                                    n
+                                                    ，非零元素个数为
+                                                    t&nbsp;</p>
+                                                <p>- 外层循环：遍历矩阵每一列，执行
+                                                    n
+                                                    次；&nbsp;</p>
+                                                <p>- 内层循环：每次遍历全部
+                                                    t
+                                                    个三元组；</p>
+                                                <p><strong>&nbsp;T(n)=O(n×t)</strong></p>
+                                            </dd>
+                                        </dl>
+                                        <dl class="mark_fill colorGreen">
+                                            <dt><i class="fontWeight custom-style"> 正确答案：</i></dt>
+                                            <dd class="rightAnswerContent workTextWrap">
+                                                普通转置算法:遍历原矩阵的三元组表，将每个非零元的行、列交换后，按列序(即转置后的行序)插入到新三元组表中。由于每次都要寻找合适位置，通常采用按列优先扫描原表的方法。时间复杂度为O(m×n)，其中m、n为行、列数。
+                                            </dd>
+                                        </dl>
+                                    </div>
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004810', '4', '简答题', '3420faf6cb11404c8b9a77716b4b51fd', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004804"
+                        data="215004804" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">34. <span class="colorShallow">(简答题,
+                                        5分)</span><span class="qtContent workTextWrap">什么是稀疏矩阵?为什么要对稀疏矩阵进行压缩存储?</span>
+                                </h3>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_answer_key pad0">
+                                        <dl class="mark_fill colorDeep" id="qb215004804">
+                                            <dt class="positionStyle"><i class="fontWeight custom-style">我的答案：</i>
+                                                <div class="mark_score">
+                                                </div>
+                                            </dt>
+
+
+                                            <dd class="textwrap stuAnswerContent reserve-newline">
+                                                <h3>一、稀疏矩阵定义&nbsp;</h3>
+                                                <p>若一个矩阵中零元素的数量远大于非零元素数量，且非零元素分布无规律，称该矩阵为稀疏矩阵。</p>
+                                                <h3>二、压缩存储的原因&nbsp;</h3>
+                                                <p><strong>1. 节省存储空间</strong></p>
+                                                <p>普通二维数组会完整存储所有零元素，造成大量空间浪费；压缩存储只存放非零元素，大幅减少内存占用。&nbsp;</p>
+                                                <p><strong>2. 提高运算效率</strong></p>
+                                                <p>规避大量无效零元素的重复计算，降低矩阵运算的时间开销。&nbsp;</p>
+                                                <p><strong>3. 适配大数据场景</strong></p>
+                                                <p>高阶矩阵中零元素占比极高，压缩存储能降低硬件资源消耗，便于存储与处理。</p>
+                                            </dd>
+                                        </dl>
+                                        <dl class="mark_fill colorGreen">
+                                            <dt><i class="fontWeight custom-style"> 正确答案：</i></dt>
+                                            <dd class="rightAnswerContent workTextWrap">
+                                                稀疏矩阵是指非零元个数远少于零元个数的矩阵。压缩存储可以节省存储空间，避免存储大量零元素，同时某些运算(如加法、转置)可以只处理非零元，提高效率。
+                                            </dd>
+                                        </dl>
+                                    </div>
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004804', '4', '简答题', 'f304d879cd454b548fdfb936e1ce3690', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+
+
+                    <div class="marBom60 questionLi singleQuesId" style="word-wrap: break-word;" id="question215004807"
+                        data="215004807" tabindex="0" aria-label="题目详情">
+                        <div class="aiArea">
+                            <div class="aiAreaContent">
+                                <h3 class="mark_name colorDeep" tabindex="0">35. <span class="colorShallow">(简答题,
+                                        5分)</span><span class="qtContent workTextWrap">什么是广义表?广义表与线性表有何联系与区别?</span>
+                                </h3>
+
+                                <div class="mark_answer" tabindex="0">
+                                    <div class="mark_answer_key pad0">
+                                        <dl class="mark_fill colorDeep" id="qb215004807">
+                                            <dt class="positionStyle"><i class="fontWeight custom-style">我的答案：</i>
+                                                <div class="mark_score">
+                                                </div>
+                                            </dt>
+
+
+                                            <dd class="textwrap stuAnswerContent reserve-newline">
+                                                <h3>一、广义表定义&nbsp;</h3>
+                                                <p>广义表是n 个有限元素组成的有限序列，记作：</p>
+                                                <p>&nbsp;LS=(a
+                                                    1
+
+                                                    ,a
+                                                    2
+
+                                                    ,…,a
+                                                    n
+
+                                                    )&nbsp;</p>
+                                                <p>其中每个元素
+                                                    a
+                                                    i
+
+
+                                                    既可以是原子元素（单个数据），也可以是子广义表；广义表是线性表的推广，允许元素嵌套。</p>
+                                                <h3>&nbsp;二、联系&nbsp;</h3>
+                                                <p>1. 广义表和线性表都属于线性结构，元素有序排列；</p>
+                                                <p>2. 当广义表中所有元素都是原子、无嵌套时，广义表就退化为普通线性表；&nbsp;</p>
+                                                <p>3. 都支持取表头、取表尾、查找、遍历等基本操作。&nbsp;</p>
+                                                <h3>三、区别</h3>
+                                                <p><strong>1. 元素类型不同</strong></p>
+                                                <p>线性表元素只能是原子数据；</p>
+                                                <p>广义表元素既可以是原子，也可以是子表，允许多层嵌套。</p>
+                                                <p><strong>&nbsp;2. 结构层次不同</strong></p>
+                                                <p>线性表是单层线性结构，无层次；</p>
+                                                <p>广义表是多层次递归结构，具有深度概念。&nbsp;</p>
+                                                <p><strong>3. 长度与深度</strong></p>
+                                                <p>线性表只有长度，无深度；</p>
+                                                <p>广义表既有长度（顶层元素个数），又有嵌套深度。&nbsp;</p>
+                                                <p><strong>4. 递归特性</strong></p>
+                                                <p>线性表不可递归定义；</p>
+                                                <p>广义表可以递归定义，自身可作为自身元素。</p>
+                                            </dd>
+                                        </dl>
+                                        <dl class="mark_fill colorGreen">
+                                            <dt><i class="fontWeight custom-style"> 正确答案：</i></dt>
+                                            <dd class="rightAnswerContent workTextWrap">
+                                                广义表是线性表的推广，其元素可以是原子(单个数据元素)也可以是子表(广义表)。线性表是广义表的特例(所有元素均为原子)。区别:广义表允许元素为表，具有递归结构;线性表元素是原子。
+                                            </dd>
+                                        </dl>
+                                    </div>
+                                    <!--显示知识点-->
+                                    <!--显示知识点-->
+                                </div>
+
+
+
+                            </div>
+                            <a href="javascript:;"
+                                onclick="initAssistant('question215004807', '4', '简答题', '49522f5e51b24fbdadb9a8dfda95b06c', '0', 0, '52785453')"
+                                class="aiAssistant"><span><i class="custom-style">AI讲解</i></span></a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="fanyaMarking_right" id="rightHeight">
+            <div class="topicNumber" id="topicNumberScroll" tabindex="0" aria-label="答题卡">
+
+
+                <div class="topicNumber_checkbox colorDeep fs14" tabindex="0">
+                    一. 单选题（20分） </div>
+                <ul class="topicNumber_list clearfix" tabindex="-1" aria-hidden="true">
+                    <li id="answerSheet215004764" data="215004764" class="active" tabindex="0" role="option">1</li>
+                    <li id="answerSheet215004768" data="215004768" class="active" tabindex="0" role="option">2</li>
+                    <li id="answerSheet215004773" data="215004773" class="active" tabindex="0" role="option">3</li>
+                    <li id="answerSheet215004771" data="215004771" class="active" tabindex="0" role="option">4</li>
+                    <li id="answerSheet215004770" data="215004770" class="active" tabindex="0" role="option">5</li>
+                    <li id="answerSheet215004769" data="215004769" class="active" tabindex="0" role="option">6</li>
+                    <li id="answerSheet215004765" data="215004765" class="active" tabindex="0" role="option">7</li>
+                    <li id="answerSheet215004766" data="215004766" class="active" tabindex="0" role="option">8</li>
+                    <li id="answerSheet215004767" data="215004767" class="active" tabindex="0" role="option">9</li>
+                    <li id="answerSheet215004772" data="215004772" class="active" tabindex="0" role="option">10</li>
+                </ul>
+
+
+                <div class="topicNumber_checkbox colorDeep fs14" tabindex="0">
+                    二. 多选题（28分） </div>
+                <ul class="topicNumber_list clearfix" tabindex="-1" aria-hidden="true">
+                    <li id="answerSheet215004778" data="215004778" class="active" tabindex="0" role="option">11</li>
+                    <li id="answerSheet215004777" data="215004777" class="active" tabindex="0" role="option">12</li>
+                    <li id="answerSheet215004775" data="215004775" class="active" tabindex="0" role="option">13</li>
+                    <li id="answerSheet215004774" data="215004774" class="active" tabindex="0" role="option">14</li>
+                    <li id="answerSheet215004780" data="215004780" class="active" tabindex="0" role="option">15</li>
+                    <li id="answerSheet215004776" data="215004776" class="active" tabindex="0" role="option">16</li>
+                    <li id="answerSheet215004782" data="215004782" class="active" tabindex="0" role="option">17</li>
+                </ul>
+
+
+                <div class="topicNumber_checkbox colorDeep fs14" tabindex="0">
+                    三. 填空题（15分） </div>
+                <ul class="topicNumber_list clearfix" tabindex="-1" aria-hidden="true">
+                    <li id="answerSheet215004789" data="215004789" class="active" tabindex="0" role="option">18</li>
+                    <li id="answerSheet215004787" data="215004787" class="active" tabindex="0" role="option">19</li>
+                    <li id="answerSheet215004785" data="215004785" class="active" tabindex="0" role="option">20</li>
+                    <li id="answerSheet215004784" data="215004784" class="active" tabindex="0" role="option">21</li>
+                    <li id="answerSheet215004790" data="215004790" class="active" tabindex="0" role="option">22</li>
+                    <li id="answerSheet215004786" data="215004786" class="active" tabindex="0" role="option">23</li>
+                    <li id="answerSheet215004815" data="215004815" class="active" tabindex="0" role="option">24</li>
+                </ul>
+
+
+                <div class="topicNumber_checkbox colorDeep fs14" tabindex="0">
+                    四. 判断题（22分） </div>
+                <ul class="topicNumber_list clearfix" tabindex="-1" aria-hidden="true">
+                    <li id="answerSheet215004791" data="215004791" class="active" tabindex="0" role="option">25</li>
+                    <li id="answerSheet215004794" data="215004794" class="active" tabindex="0" role="option">26</li>
+                    <li id="answerSheet215004814" data="215004814" class="active" tabindex="0" role="option">27</li>
+                    <li id="answerSheet215004792" data="215004792" class="active" tabindex="0" role="option">28</li>
+                    <li id="answerSheet215004818" data="215004818" class="active" tabindex="0" role="option">29</li>
+                    <li id="answerSheet215004816" data="215004816" class="active" tabindex="0" role="option">30</li>
+                    <li id="answerSheet215004793" data="215004793" class="active" tabindex="0" role="option">31</li>
+                    <li id="answerSheet215004817" data="215004817" class="active" tabindex="0" role="option">32</li>
+                </ul>
+
+
+                <div class="topicNumber_checkbox colorDeep fs14" tabindex="0">
+                    五. 简答题（15分） </div>
+                <ul class="topicNumber_list clearfix" tabindex="-1" aria-hidden="true">
+                    <li id="answerSheet215004810" data="215004810" class="active" tabindex="0" role="option">33</li>
+                    <li id="answerSheet215004804" data="215004804" class="active" tabindex="0" role="option">34</li>
+                    <li id="answerSheet215004807" data="215004807" class="active" tabindex="0" role="option">35</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <div class="maskDiv popMoveShowHide" style="display:none;" id="recordList">
+        <div class="popDiv wid640 popMove">
+            <div class="popHead">
+                <a href="javascript:;" onclick="closeAnswers();" class="popClose popMoveDele fr"><img
+                        src="//mooc1.chaoxing.com/mooc-ans/mooc2/images/popClose.png" /></a>
+                <p class="fl fs18 colorDeep">作答记录</p>
+            </div>
+            <div class="het62"></div>
+            <div id="content"></div>
+        </div>
+    </div>
+    <div id="aiAssistantId"></div>
+    <script type="text/javascript" src="//mooc1.chaoxing.com/mooc-ans/js/ServerHost.js"></script>
+    <script type="text/javascript" src="//mooc1.chaoxing.com/mooc-ans/mooc2/js/html2canvas.min.js"></script>
+    <script type="text/javascript" async src="https://stat2-ans.chaoxing.com/stat2/js/cozebot-sdk.min.js"></script>
+    <script type="text/javascript">
+        //0作业 1 考试 2 测验 3 自测
+        function initAssistant(exampleId, questionType, typeName, questionId, questionTypeId, taskType, taskId) {
+            var courseId = "250009446";
+            var classId = "139341094";
+            var cpi = "408105850";
+
+            var sourceObj = {
+                "serverName": "mooc1",
+                "businessTag": "question_assistant",
+                "extraData": {
+                    "courseId": courseId,
+                    "clazzId": classId,
+                    "personId": cpi,
+                    "relationType": taskType,
+                    "relationId": taskId,
+                    "questionType": questionType,
+                    "questionTypeId": questionTypeId,
+                    "questionId": questionId
+                }
+            };
+            var sourceInfo = JSON.stringify(sourceObj);
+            sourceInfo = encodeURIComponent(sourceInfo);
+
+            var text = getPlainText(exampleId, questionType);
+            if (text.length > 0) {
+                postTextMsg(text, sourceInfo);
+                return;
+            }
+
+            loadImgData(exampleId, sourceInfo);
+        }
+
+        function loadImgData(exampleId, sourceInfo) {
+            $.toast({ type: "loading", time: 0, content: "生成提问中..." });
+
+            var tempDiv = cloneOriginDiv(exampleId);
+            $("#" + exampleId).append(tempDiv);
+
+            processImagesInDiv(tempDiv).then(() => convertDivToImage(tempDiv)).then((data) => {
+                var imgData = data.toDataURL("image/png", 0.9);
+                showAssistant(imgData, sourceInfo);
+                tempDiv.remove();
+                $("#dialogToast").remove();
+            }).catch((error) => {
+                console.error("处理图片或转换为图片时出错:", error);
+                $.toast({ type: "failure", content: "处理图片或转换图片出错，请稍后重试" });
+                tempDiv.remove();
+                $("#dialogToast").remove();
+            });
+        }
+
+        function cloneOriginDiv(id) {
+            var originDiv = $("#" + id).find(".aiAreaContent")[0];
+            return originDiv.cloneNode(true);
+        }
+
+        function processImagesInDiv(tempDiv) {
+            var imgPromises = [];
+            $(tempDiv).find("img").each(function (idx, ele) {
+                var url = ele.src || "";
+                var starType = url.includes("/star3/") ? "star3" : url.includes("/star4/") ? "star4" : null;
+                if (!starType) {
+                    return true;
+                }
+
+                var arr = url.split(starType);
+                if (arr.length < 2) {
+                    return true;
+                }
+                url = location.protocol + "//" + location.hostname + "/p-ans/" + starType + arr[1];
+
+                var imgPromise = new Promise((resolve, reject) => {
+                    var newImg = new Image();
+                    newImg.onload = () => {
+                        ele.src = url;
+                        resolve();
+                    };
+                    newImg.onerror = reject;
+                    newImg.src = url;
+                });
+                imgPromises.push(imgPromise);
+            });
+
+            return Promise.all(imgPromises);
+        }
+
+        function convertDivToImage(tempDiv) {
+            return html2canvas(tempDiv, {
+                ignoreElements: function (element) {
+                    return element.classList.contains("element-invisible-hidden");
+                }
+            });
+        }
+
+        function showAssistant(imgData, sourceInfo) {
+            try {
+                CozeBotSDK.init({
+                    appId: "1192651262850",
+                    botId: "7429626930406326309",
+                    rootElementId: "aiAssistantId",
+                    upload: true,
+                    target: 'https://stat2-ans.chaoxing.com',
+                    sourceInfo: sourceInfo
+                });
+
+                CozeBotSDK.sendToIframeMessage({
+                    eventName: "callCozeConversation",
+                    isLastWindow: true
+                });
+
+                setTimeout(function () {
+                    CozeBotSDK.sendToIframeImageBase64({
+                        eventName: "sendImgFile",
+                        imageBase64: imgData,
+                        presetMsg: "讲解一下这道题",
+                        model: 1
+                    });
+                }, 1000);
+            } catch (e) {
+                console.error("Error in CozeBotSDK:", e);
+            }
+        }
+
+        function postTextMsg(text, sourceInfo) {
+            try {
+                CozeBotSDK.init({
+                    appId: "1192651262850",
+                    botId: "7429626930406326309",
+                    rootElementId: "aiAssistantId",
+                    upload: true,
+                    target: 'https://stat2-ans.chaoxing.com',
+                    sourceInfo: sourceInfo
+                });
+
+                CozeBotSDK.sendToIframeMessage({
+                    eventName: "callCozeConversation",
+                    isLastWindow: true
+                });
+
+                setTimeout(function () {
+                    CozeBotSDK.sendToIframeMessage({
+                        eventName: "sendMsgCozeConversation",
+                        msg: text,
+                        model: 1
+                    });
+                }, 1000);
+            } catch (e) {
+                console.error("Error in CozeBotSDK:", e);
+            }
+        }
+
+        function getPlainText(id, questionType) {
+            var source = $("#" + id);
+            var contnt = source.find(".qtContent");
+            if (contnt.find("img, iframe").length > 0) {
+                return "";
+            }
+            var html = "讲解一下这道题：\n" + "\#\#\# 题目：\n" + contnt.text() + "\n";
+
+            var detail = source.find(".qtDetail");
+            if (detail.find("img, iframe").length > 0) {
+                return "";
+            }
+            if (questionType == 11 || questionType == 14) {
+                detail.find("dt, dd").each(function () {
+                    var option = $(this).text();
+                    html += option + "\n";
+                });
+            } else if (questionType == 20) {
+                detail.each(function () {
+                    var option = $(this).text();
+                    html += option + "\n";
+                });
+            } else {
+                detail.find("li").each(function () {
+                    var option = $(this).text();
+                    html += option + "\n";
+                });
+            }
+
+            var studentAnswer = source.find(".stuAnswerContent");
+            if (studentAnswer.find("img, iframe").length > 0) {
+                return "";
+            }
+            if (studentAnswer.length > 0) {
+                html += "\#\#\# 我的答案：\n";
+            }
+            studentAnswer.each(function () {
+                if (questionType == 17) {
+                    var answer = $(this).html();
+                    var htmlContent = $(answer);
+                    htmlContent.children("*").each(function () {
+                        var text = $(this).text().trim();
+                        if (text) {
+                            html += text + "\n";
+                        }
+                    });
+                } else {
+                    var option = $(this).text();
+                    html += option + "\n";
+                }
+            });
+
+            var rightAnswer = source.find(".rightAnswerContent");
+            if (rightAnswer.find("img, iframe").length > 0) {
+                return "";
+            }
+            if (rightAnswer.length > 0) {
+                html += "\#\#\# 正确答案：\n";
+            }
+            rightAnswer.each(function () {
+                var option = $(this).text();
+                html += option + "\n";
+            });
+
+            var analysis = source.find(".qtAnalysis");
+            if (analysis.find("img, iframe").length > 0) {
+                return "";
+            }
+            if (analysis.length > 0 && analysis.text().trim().length > 0) {
+                html += "\#\#\# 答案解析：\n" + analysis.text() + "\n";
+            }
+
+            return html;
+        }
+    </script>
+    <link rel="stylesheet" type="text/css" href="//mooc1.chaoxing.com/mooc-ans/mooc2/css/prompt.css?v=2023-0711-1500" />
+    <style>
+        .mask-no-bg {
+            background: none !important;
+        }
+
+        .mask-no-bg .popDiv {
+            box-shadow: 0px 4px 36px rgba(0, 0, 0, 0.08);
+        }
+
+        #workpop .popDiv {
+            top: 50% !important;
+            transform: translate(-50%, -50%) !important;
+            left: 50% !important;
+            bottom: auto !important;
+            margin-top: 0 !important;
+            margin-left: 0 !important
+        }
+    </style>
+    <div class="maskDiv" style="display:none;" id="workpop">
+        <div class="popDiv wid440 Marking">
+            <div class="popHead" id="workpopFocus" role="alertdialog" tabindex="0">
+                <a id="popCloseFocus" href="javascript:;" class="popClose fr" onclick="popClickFunc()"
+                    tabindex="-1"><img src="//mooc1.chaoxing.com/mooc-ans/images/popClose.png" id="popCloseFocusImg"
+                        onkeydown="if(event.keyCode == 13){popCloseFocus();}" role="button" tabindex="-1"
+                        aria-label="关闭" /></a>
+                <p class="fl fs18 colorDeep" tabindex="0" role="option">提示</p>
+            </div>
+            <div class="het62"></div>
+            <p class="popWord fs16 colorIn" id="popcontent" tabindex="0"></p>
+
+            <div class="popBottom">
+                <a href="javascript:;" id="popok" class="jb_btn jb_btn_92 fr fs14" tabindex="0" role="button"
+                    aria-label="确定"></a>
+                <a href="javascript:;" id="popno" class="btnBlue btn_92_cancel fr fs14" onkeydown="popnoFocus();"
+                    tabindex="0" role="button" aria-label="取消"></a>
+            </div>
+            <div class="het72"></div>
+        </div>
+    </div>
+
+    <div class="mask-no-bg" style="display:none;" id="worktoast">
+        <div class="popDiv wid440 Marking" style="top: 30%;">
+            <div class="popHead">
+                <a href="javascript:;" class="popClose fr" onclick="toastClickFunc()"><img
+                        src="//mooc1.chaoxing.com/mooc-ans/images/popClose.png" /></a>
+                <p class="fl fs18 colorDeep">提示</p>
+            </div>
+            <div class="het62"></div>
+            <p class="popWord fs16 colorIn" id="toastcontent"></p>
+
+            <div class="popBottom">
+                <a href="javascript:;" id="toastok" class="jb_btn jb_btn_92 fr fs14"></a>
+                <a href="javascript:;" id="toastno" class="btnBlue btn_92_cancel fr fs14"></a>
+            </div>
+            <div class="het72"></div>
+        </div>
+    </div>
+
+    <div class="maskDiv" style="display:none;" id="hintPop">
+        <div class="popDiv wid440 Marking">
+            <div class="popHead">
+                <p class="fl fs18 colorDeep">提示</p>
+            </div>
+            <div class="het62"></div>
+            <p class="popWord fs16 colorIn" id="hintCon"></p>
+            <div class="popBottom">
+                <a href="javascript:;" id="hintOk" class="jb_btn jb_btn_92 fr fs14"></a>
+            </div>
+            <div class="het72"></div>
+        </div>
+    </div>
+    <script>
+        function popClickFunc() {
+            $('#workpop').hide();
+            if ($('.popSetupShowHide').length > 0) {
+                $('.popSetupShowHide').fullFadeOut();
+            }
+        }
+
+        function toastClickFunc() {
+            $('#worktoast').hide();
+            if ($('.popSetupShowHide').length > 0) {
+                $('.popSetupShowHide').fullFadeOut();
+            }
+        }
+
+
+        function workPop(content, okTent, cancelTent, okcallback, cancelCallback) {
+            var ta = $("#workpop");
+
+            if ($('.popSetupShowHide').length > 0) {
+                $(".popSetupShowHide").fullFadeIn();
+            }
+
+            ta.show();
+
+            $("#popcontent").html(content);
+            var popokHiddenRead = $("#popokHiddenRead");
+
+            var ok = $("#popok");
+            ok.html(okTent);
+            ok.unbind();
+            ok.on("click", function () {
+                // 无障碍单位走定制,延迟语音读取处理
+                if ("0" == "1") {
+                    popokHiddenRead.attr("tabindex", "0");
+                    if (content && content != '很遗憾，未达到及格线，请重做') {
+                        popokHiddenRead.focus();
+                    }
+                    setTimeout(function () {
+                        okcallback && okcallback(ta);
+                        popokHiddenRead.attr("tabindex", "-1")
+                        ta.hide();
+                        if ($('.popSetupShowHide').length > 0) {
+                            $(".popSetupShowHide").fullFadeOut();
+                        }
+                    }, 1000)
+                } else {
+                    okcallback && okcallback(ta);
+                    ta.hide();
+
+                    if ($('.popSetupShowHide').length > 0) {
+                        $(".popSetupShowHide").fullFadeOut();
+                    }
+                }
+            });
+
+            var cancel = $("#popno");
+            cancel.html(cancelTent);
+            cancel.unbind();
+            cancel.on("click", function () {
+                cancelCallback && cancelCallback(ta);
+                ta.hide();
+                if ($('.popSetupShowHide').length > 0) {
+                    $(".popSetupShowHide").fullFadeOut();
+                }
+            });
+            if ("0" == "1") {
+                $("#workpopFocus").focus();
+            }
+        }
+
+        function workToast(content, okTent, cancelTent, okcallback, cancelCallback) {
+            var ta = $("#worktoast");
+
+            if ($('.popSetupShowHide').length > 0) {
+                $(".popSetupShowHide").fullFadeIn();
+            }
+
+            ta.show();
+
+            $("#toastcontent").html(content);
+
+            var ok = $("#toastok");
+            ok.html(okTent);
+            ok.unbind();
+            ok.on("click", function () {
+                okcallback && okcallback(ta);
+                ta.hide();
+
+                if ($('.popSetupShowHide').length > 0) {
+                    $(".popSetupShowHide").fullFadeOut();
+                }
+            });
+
+            var cancel = $("#toastno");
+            cancel.html(cancelTent);
+            cancel.unbind();
+            cancel.on("click", function () {
+                cancelCallback && cancelCallback(ta);
+                ta.hide();
+                if ($('.popSetupShowHide').length > 0) {
+                    $(".popSetupShowHide").fullFadeOut();
+                }
+            });
+        }
+
+        function workHint(content, okTent, okcallback) {
+            var ta = $("#hintPop");
+
+            if ($('.popSetupShowHide').length > 0) {
+                $(".popSetupShowHide").fullFadeIn();
+            }
+
+            ta.show();
+
+            $("#hintCon").html(content);
+
+            var ok = $("#hintOk");
+            ok.html(okTent);
+            ok.unbind();
+            ok.on("click", function () {
+                okcallback && okcallback(ta);
+                ta.hide();
+
+                if ($('.popSetupShowHide').length > 0) {
+                    $(".popSetupShowHide").fullFadeOut();
+                }
+            });
+        }
+
+        function popFocus() {
+            if ("0" != "1") {
+                return;
+            }
+            $("#popCloseFocusImg").attr("tabindex", "0");
+            $("#popCloseFocus").focus();
+        }
+        function popCloseFocus() {
+            if ("0" != "1") {
+                return;
+            }
+            $('#workpop').hide();
+            if ($('.popSetupShowHide').length > 0) {
+                $('.popSetupShowHide').fullFadeOut();
+            }
+            $("#popCloseFocusImg").attr("tabindex", "-1");
+        }
+        function popnoFocus() {
+            if ("0" != "1") {
+                return;
+            }
+            if (event.keyCode == 9) {
+                popFocus();
+            }
+            if (event.keyCode == 13) {
+                $("#popCloseFocusImg").attr("tabindex", "-1");
+            }
+        }
+
+    </script><!-- 代码高亮开始 start -->
+    <link type="text/css" href="//mooc1.chaoxing.com/mooc-ans/views/mooc2/ueditor/insertcode/css/default.min.css"
+        rel="stylesheet" />
+    <script type="text/javascript" src="//mooc-res2.chaoxing.com/mooc-ans/js/highlight.min.js" charset="utf-8"></script>
+    <script type="text/javascript" src="//mooc-res2.chaoxing.com/mooc-ans/js/highlightjs-line-numbers.js"
+        charset="utf-8"></script>
+    <style>
+        pre,
+        code {
+            display: block;
+            background: #F7F8FA;
+            border: 1px solid #E1E3E5;
+            font-size: 14px;
+            border-radius: 4px;
+            padding: 30px 20px;
+            margin: 20px 0;
+            font-family: CXHackSafariFont, CXEmojiFont, CXChineseQuote, -apple-system, BlinkMacSystemFont, Helvetica Neue, Helvetica, Tahoma, Arial, Segoe UI, PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif, Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol, Noto Color Emoji;
+        }
+
+        pre {
+            overflow-x: auto;
+            margin: .5em 0;
+            padding: .4em .6em;
+            border-radius: 8px;
+            background: #f8f8f8;
+        }
+
+        pre.autolinebreak {
+            white-space: normal;
+        }
+
+        code.hljs {
+            background: #F7F8FA;
+        }
+
+        pre code,
+        pre pre {
+            margin: 0;
+            background: none;
+            border: none;
+        }
+
+        /*padding: 0;*/
+        .code-tool-wrap {
+            padding-bottom: 1em;
+            left: 20px;
+            top: 2px;
+            width: calc(100% - 40px);
+            height: 24px;
+            font-size: 14px;
+        }
+
+        .code-lang {
+            display: inline-block;
+            color: #ACB4BF;
+        }
+
+        .ans-cc .ans-noborder th,
+        .ans-cc .ans-noborder td {
+            border-color: transparent;
+        }
+
+        .ans-cc pre,
+        .ans-cc code {
+            position: relative;
+            padding: 0px 20px 30px;
+            margin: 20px 0;
+            border: 1px solid #E1E3E5;
+            border-radius: 4px;
+            color: #474C59;
+            background: #F7F8FA;
+            font-size: 14px;
+            font-family: CXHackSafariFont, CXEmojiFont, CXChineseQuote, -apple-system, BlinkMacSystemFont, Helvetica Neue, Helvetica, Tahoma, Arial, Segoe UI, PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif, Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol, Noto Color Emoji;
+        }
+
+        .ans-cc pre {
+            overflow: auto
+        }
+
+        .ans-cc pre code,
+        .ans-cc pre pre {
+            padding: 0;
+            border: none;
+            margin: 0;
+            background: none;
+            border-radius: 0;
+        }
+
+        .ans-cc pre.autolinebreak {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .hljs-ln-numbers {
+            text-align: center;
+            color: #ccc;
+            border-right: 1px solid #CCC;
+            vertical-align: top;
+            padding-right: 5px !important;
+        }
+
+        .hljs-ln-code {
+            padding-left: 5px !important;
+        }
+
+        /* 全局去掉表格样式 */
+        .ans-cc pre code table tr td {
+            border: solid 0px #cfd4dc;
+            text-align: left
+        }
+
+        /* 作业表格适配，考试表格适配 */
+        .ans-cc pre table {
+            table-layout: unset;
+        }
+
+        .ans-cc pre code table {
+            table-layout: unset;
+        }
+
+        /* pre 标签未换行 */
+        .ans-cc pre.line-numbers {
+            clear: both
+        }
+
+        .ans-cc pre {
+            clear: both
+        }
+
+        /* app作业库 考试库 查看样式 */
+
+        .hljs-link,
+        .hljs-operator,
+        .hljs-regexp,
+        .hljs-selector-attr,
+        .hljs-selector-pseudo,
+        .hljs-symbol,
+        .hljs-template-variable,
+        .hljs-variable {
+            color: #ab5656 !important;
+        }
+
+        .hljs-deletion,
+        .hljs-number,
+        .hljs-quote,
+        .hljs-selector-class,
+        .hljs-selector-id,
+        .hljs-string,
+        .hljs-template-tag,
+        .hljs-type {
+            color: #800 !important;
+        }
+
+        /* 章节作业 */
+        .hljs-ln span {
+            margin-right: 0
+        }
+
+        /* 学习通颜色覆盖 */
+        .hljs-type {
+            color: #800 !important;
+        }
+
+        .hljs-section,
+        .hljs-title {
+            color: #800 !important;
+            font-weight: 700
+        }
+
+        /* 背景颜色 */
+        .ans-cc pre code td {
+            background-color: unset;
+        }
+    </style>
+    <link type="text/css" href="//mooc1.chaoxing.com/mooc-ans/css/newEditor.css?v=2023-0609-1900" rel="stylesheet" />
+    <script>
+        /**
+         * 保证最后加载
+         */
+        $(function () {
+            var pre = $(".ans-cc").find('pre')
+            if (pre) {
+                pre.each(function () {
+                    // debugger
+                    var me = this;
+                    if ($(me).hasClass('CodeMirror-line')) { //代码编辑器
+                        return;
+                    }
+                    var lang = me.firstChild && me.firstChild.lang;
+                    if (typeof (lang) == 'undefined' || lang == null || lang == "") {
+                        lang = me.firstChild && me.firstChild.className;
+                        if (typeof (lang) != 'undefined' && lang != null && lang != "") {
+                            var split = lang.split("-");
+                            lang = split[1];
+                            if (lang == 'plain') {
+                                lang = 'Plain Text';
+                            }
+                        } else {
+                            lang = 'Plain Text';
+                        }
+                    }
+                    me.innerHTML = '<div class="code-tool-wrap clearfix"><div class="code-lang fl">' + lang
+                        + '</div><div class="copy1 fr"><i></i><span></span></div></div>' + me.innerHTML;
+                    me.innerHTML = me.innerHTML.replace(/<br\s*\/?>/g, "\n");
+                })
+            }
+
+            try {
+                hljs.initHighlightingOnLoad();
+                hljs.initLineNumbersOnLoad({ singleLine: true });
+            } catch (e) {
+
+            }
+        })
+    </script>
+    <!-- 代码高亮结束 end -->
+
+    <script>
+
+        $(function () {
+            $(".viewAttach").find("span:first").each(function () {
+                $(this).attr("onclick", "viewMark(this);");
+            });
+        });
+
+        var courseId = $("#courseId").val();
+        var classId = $("#classId").val();
+        var cpi = $("#cpi").val();
+        var workId = $("#workId").val();
+        var answerId = $("#answerId").val();
+        var enc = $("#enc").val();
+
+        function modifyAnswer() {
+            location.href = "/mooc-ans/mooc2/work/dowork?courseId=250009446&classId=139341094&cpi=408105850&workId=52785453"
+                + "&answerId=56616425&knowledgeId=&jobid=&standardEnc=b31ba19f52f2c3fb21341b5b9acf8b5d&enc=df7176e05b1428a706c83514f0985d82";
+        }
+
+        function redoWork() {
+
+            var redoTimes = 0 + 0 - 0;
+            var msg = "你还可以重做" + redoTimes + "次，确认重做后，前一次作答记录会被覆盖，作业成绩以本次成绩为最终成绩，是否继续？";
+
+            workPop(msg, "重做", "取消", function () {
+                $.ajax({
+                    type: "get",
+                    url: _HOST_CP2_ + "/work/phone/redo",
+                    dataType: "json",
+                    data: {
+                        courseId: courseId,
+                        classId: classId,
+                        cpi: cpi,
+                        workId: workId,
+                        workAnswerId: answerId
+                    },
+                    success: function (data) {
+                        if (data.status == 1) {
+                            location.href = "/mooc-ans/mooc2/work/dowork?courseId=250009446&classId=139341094&cpi=408105850&workId=52785453&answerId=56616425&knowledgeId=&jobid=&standardEnc=b31ba19f52f2c3fb21341b5b9acf8b5d&enc=df7176e05b1428a706c83514f0985d82";
+                        } else {
+                            $.toast({
+                                type: 'failure',
+                                content: data.msg
+                            });
+                        }
+                    }
+                });
+            });
+        }
+
+        var recordLock = 0
+        function answerList() {
+            if (recordLock == 1) {
+                return;
+            }
+            recordLock = 1;
+
+            $.ajax({
+                type: "get",
+                url: _HOST_CP2_ + "/mooc2/work/answer-list",
+                dataType: "html",
+                data: {
+                    courseId: courseId,
+                    classId: classId,
+                    cpi: cpi,
+                    workId: workId,
+                    answerId: answerId,
+                    enc: enc
+                },
+                success: function (data) {
+                    $("#content").html(data);
+                    $("#recordList").show();
+                    MoveFixed();
+                }
+            });
+        }
+
+        function closeAnswers() {
+            $("#recordList").hide();
+            recordLock = 0;
+        }
+
+        function MoveFixed() {
+            $('.popMove').css({
+                top: function () {
+                    return ($(window).height() - $(this).height()) / 2;
+                },
+                left: function () {
+                    return ($(window).width() - $(this).width()) / 2;
+                }
+            });
+
+            $("#boxscroll").niceScroll({
+                cursorborder: "",
+                cursorcolor: "#D9DDE1",
+                boxzoom: false
+            });
+        }
+
+    </script>
+</body>
+
+</html>

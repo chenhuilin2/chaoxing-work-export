@@ -413,16 +413,16 @@
     output += '              错题汇总\n';
     output += '========================================\n\n';
 
-    let globalNum = 0;
+    let wrongNum = 0;
     for (const qtype of typeOrder) {
       const questions = results[qtype];
       if (!questions || questions.length === 0) continue;
       if (qtype === '简答') continue; // 简答题不算错题
       for (const q of questions) {
-        globalNum++;
         if (!q.isWrong) continue;
+        wrongNum++;
         const typeLabel = qtype === '填空' ? '填空题' : '题目';
-        output += `${globalNum}. (${typeLabel})${q.stem}\n`;
+        output += `${wrongNum}. (${typeLabel})${q.stem}\n`;
         output += `   我的答案: ${q.myAnswer || '无'}\n`;
         output += `   正确答案: ${q.correctAnswer || '（未找到答案）'}\n\n`;
       }
@@ -504,15 +504,15 @@
     let output = '\n\n\n---\n\n';
     output += '## 错题汇总\n\n';
 
-    let globalNum = 0;
+    let wrongNum = 0;
     for (const qtype of typeOrder) {
       const questions = results[qtype];
       if (!questions || questions.length === 0) continue;
       if (qtype === '简答') continue; // 简答题不算错题
       for (const q of questions) {
-        globalNum++;
         if (!q.isWrong) continue;
-        output += `**${globalNum}.** ${q.stem}\n\n`;
+        wrongNum++;
+        output += `**${wrongNum}.** ${q.stem}\n\n`;
         output += `- 我的答案: ${q.myAnswer || '无'}\n`;
         output += `- 正确答案: ${q.correctAnswer || '（未找到答案）'}\n\n`;
       }
@@ -521,13 +521,19 @@
   }
 
   // ==================== Word 文档生成（纯前端） ====================
+  function normalizeStem(stem) {
+    return stem.replace(/\(\s{3,}\)/g, '(   )');
+  }
+
   async function generateWordBlob(results, typeOrder, title) {
-    const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
-            AlignmentType, WidthType, convertMillimetersToTwip } = docx;
+    const { Document, Packer, Paragraph, TextRun,
+            AlignmentType, convertMillimetersToTwip,
+            TabStopType } = docx;
 
     const typeHeaders = {
-      '单选': '一、单项选择题', '填空': '二、填空题',
-      '判断': '三、判断题', '简答': '四、简答题',
+      '单选': '一、单项选择题', '多选': '二、多项选择题',
+      '填空': '三、填空题', '判断': '四、判断题',
+      '简答': '五、简答题',
     };
 
     const children = [];
@@ -556,53 +562,40 @@
       for (const q of questions) {
         qNum++;
 
-        if (qtype === '单选') {
+        if (qtype === '单选' || qtype === '多选') {
           children.push(new Paragraph({
-            children: [new TextRun({ text: `${qNum}. ${q.stem}`, font: "宋体", size: 24 })],
+            children: [new TextRun({ text: `${qNum}. ${normalizeStem(q.stem)}`, font: "宋体", size: 24 })],
             spacing: { after: 40 }
           }));
           const options = q.options || [];
           if (options.length > 0) {
-            const optionText = options.map(o => `${o.letter}. ${o.text}`).join('    ');
-            if (optionText.length > 50) {
-              const rows = [];
-              for (let r = 0; r < 2; r++) {
-                const cells = [];
-                for (let c = 0; c < 2; c++) {
-                  const idx = r * 2 + c;
-                  const opt = options[idx];
-                  cells.push(new TableCell({
-                    children: [new Paragraph({
-                      children: [new TextRun({ text: opt ? `${opt.letter}. ${opt.text}` : '', font: "宋体", size: 24 })],
-                      spacing: { after: 20 }
-                    })],
-                    borders: { top: { style: "none", size: 0 }, bottom: { style: "none", size: 0 }, left: { style: "none", size: 0 }, right: { style: "none", size: 0 } }
-                  }));
-                }
-                rows.push(new TableRow({ children: cells }));
-              }
-              children.push(new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } }));
-              children.push(new Paragraph({ children: [], spacing: { after: 40 } }));
-            } else {
+            // 制表位对齐：每行两个选项，Tab 对齐，无表格无边框
+            for (let i = 0; i < options.length; i += 2) {
+              const left = options[i];
+              const right = options[i + 1];
+              let text = `${left.letter}. ${left.text}`;
+              if (right) text += `\t${right.letter}. ${right.text}`;
               children.push(new Paragraph({
-                children: [new TextRun({ text: `    ${optionText}`, font: "宋体", size: 24 })],
-                spacing: { after: 160 }
+                children: [new TextRun({ text, font: "宋体", size: 24 })],
+                tabStops: [{ type: TabStopType.LEFT, position: 4500 }],
+                spacing: { after: 40 }
               }));
             }
+            children.push(new Paragraph({ children: [], spacing: { after: 80 } }));
           }
         } else if (qtype === '填空') {
           children.push(new Paragraph({
-            children: [new TextRun({ text: `${qNum}. ${q.stem}`, font: "宋体", size: 24 })],
+            children: [new TextRun({ text: `${qNum}. ${normalizeStem(q.stem)}`, font: "宋体", size: 24 })],
             spacing: { after: 160 }
           }));
         } else if (qtype === '判断') {
           children.push(new Paragraph({
-            children: [new TextRun({ text: `${qNum}. ${q.stem}`, font: "宋体", size: 24 })],
+            children: [new TextRun({ text: `${qNum}. ${normalizeStem(q.stem)} ( )`, font: "宋体", size: 24 })],
             spacing: { after: 160 }
           }));
         } else if (qtype === '简答') {
           children.push(new Paragraph({
-            children: [new TextRun({ text: `${qNum}. ${q.stem}`, font: "宋体", size: 24 })],
+            children: [new TextRun({ text: `${qNum}. ${normalizeStem(q.stem)}`, font: "宋体", size: 24 })],
             spacing: { after: 40 }
           }));
           for (let i = 0; i < 8; i++) {
@@ -640,6 +633,8 @@
 
   function createPanel() {
     if (document.getElementById('xxt-panel-btn')) return;
+
+    if (observer) { observer.disconnect(); observer = null; }
 
     const btn = document.createElement('button');
     btn.id = 'xxt-panel-btn';
@@ -785,7 +780,7 @@
         els.btnDownload.textContent = '生成中...';
         try {
           const blob = await generateWordBlob(extractedData.results, extractedData.typeOrder, extractedData.title);
-          const filename = (els.filename.value || '学习通试卷').replace(/\.(txt|md)$/, '') + '.docx';
+          const filename = (els.filename.value || '学习通试卷').replace(/\.(txt|md|docx)$/, '') + '.docx';
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url; a.download = filename; a.click();
@@ -889,14 +884,16 @@
   }
 
   // ==================== 初始化 ====================
+  let initTimer = null;
+  let observer = null;
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', createPanel);
   } else {
     createPanel();
   }
 
-  let initTimer = null;
-  const observer = new MutationObserver(() => {
+  observer = new MutationObserver(() => {
     if (initTimer) clearTimeout(initTimer);
     initTimer = setTimeout(createPanel, 500);
   });

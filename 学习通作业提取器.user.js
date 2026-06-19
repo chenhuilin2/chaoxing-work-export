@@ -941,16 +941,29 @@
           children.push(...await buildImageParagraphs(q.images));
           const options = q.options || [];
           if (options.length > 0) {
-            for (let i = 0; i < options.length; i += 2) {
-              const left = options[i];
-              const right = options[i + 1];
-              let text = `${left.letter}. ${left.text}`;
-              if (right) text += `\t${right.letter}. ${right.text}`;
-              children.push(new Paragraph({
-                children: [new TextRun({ text, font: "宋体", size: 24 })],
-                tabStops: [{ type: TabStopType.LEFT, position: 4500 }],
-                spacing: { after: 40 }
-              }));
+            // 判断是否需要竖排：任意选项超过 25 字则改为 1 列
+            const maxLen = Math.max(...options.map(o => o.text.length));
+            const useVertical = maxLen > 25;
+
+            if (useVertical) {
+              for (const opt of options) {
+                children.push(new Paragraph({
+                  children: [new TextRun({ text: `${opt.letter}. ${opt.text}`, font: "宋体", size: 24 })],
+                  spacing: { after: 40 }
+                }));
+              }
+            } else {
+              for (let i = 0; i < options.length; i += 2) {
+                const left = options[i];
+                const right = options[i + 1];
+                let text = `${left.letter}. ${left.text}`;
+                if (right) text += `\t${right.letter}. ${right.text}`;
+                children.push(new Paragraph({
+                  children: [new TextRun({ text, font: "宋体", size: 24 })],
+                  tabStops: [{ type: TabStopType.LEFT, position: 4500 }],
+                  spacing: { after: 40 }
+                }));
+              }
             }
             children.push(new Paragraph({ children: [], spacing: { after: 80 } }));
           }

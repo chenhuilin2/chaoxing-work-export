@@ -7,8 +7,7 @@
 
 ### 安装
 1. 确保已安装脚本管理器（[脚本猫](https://docs.scriptcat.org/) 或 Tampermonkey）
-2. 打开管理器面板，点击 **"新建脚本"**
-3. 将 `学习通题目提取器.user.js` 文件内容粘贴并保存
+2. [点击安装](https://scriptcat.org/zh-CN/script-show-page/6713)
 
 
 ### 使用

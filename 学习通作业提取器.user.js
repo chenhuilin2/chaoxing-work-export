@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通作业提取器
 // @license      GPL-3.0
-// @version      1.4
+// @version      1.5
 // @description  一键提取学习通作业题目，支持 Word/TXT/MD 导出，答案/错题收集，题目随机打乱，暗色模式，快捷键
 // @author       huilin
 // @icon         http://pan-yz.chaoxing.com/favicon.ico
@@ -202,49 +202,89 @@
 
 .xxt-hidden { display: none !important; }
 
-/* ===== 设置面板 ===== */
-#xxt-panel .xxt-settings {
-  border-top: 1px solid #eee; margin-top: 14px; padding-top: 12px;
+/* ===== 设置齿轮图标 ===== */
+#xxt-panel .xxt-settings-btn {
+  width: 24px; height: 24px; border: none; background: transparent;
+  border-radius: 50%; cursor: pointer; display: flex; align-items: center;
+  justify-content: center; transition: all 0.2s ease; margin-right: 4px;
+  color: #999; padding: 0;
 }
-#xxt-panel .xxt-settings-title {
-  font-size: 12px; color: #999; font-weight: 600;
-  margin-bottom: 8px; letter-spacing: 1px;
+#xxt-panel .xxt-settings-btn:hover { background: #f0f0f0; color: #555; }
+#xxt-panel .xxt-settings-btn svg {
+  width: 16px; height: 16px; fill: currentColor;
 }
-#xxt-panel .xxt-setting-row {
+
+/* ===== 设置弹窗遮罩 ===== */
+#xxt-settings-modal {
+  position: fixed; inset: 0; z-index: 100000;
+  background: rgba(0,0,0,0.35);
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+#xxt-settings-modal.open {
+  opacity: 1; pointer-events: auto;
+}
+
+/* ===== 设置弹窗主体 ===== */
+#xxt-settings-modal .xxt-modal-box {
+  background: #fff; border-radius: 14px; width: 340px;
+  padding: 24px; box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+  transform: translateY(12px); transition: transform 0.25s ease;
+}
+#xxt-settings-modal.open .xxt-modal-box {
+  transform: translateY(0);
+}
+#xxt-settings-modal .xxt-modal-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 12px; border-radius: 8px;
-  background: #fafbfc; border: 1px solid #eef0f2;
-  margin-bottom: 8px; transition: background 0.2s;
-  font-size: 12.5px; color: #444;
+  margin-bottom: 18px; padding-bottom: 14px;
+  border-bottom: 1px solid #eee;
 }
-#xxt-panel .xxt-setting-row:hover { background: #f0f2f5; }
-#xxt-panel .xxt-setting-label {
+#xxt-settings-modal .xxt-modal-header h3 {
+  font-size: 15px; font-weight: 700; color: #222; margin: 0;
+}
+#xxt-settings-modal .xxt-modal-close {
+  width: 24px; height: 24px; border: none; background: #f0f0f0;
+  border-radius: 50%; font-size: 15px; color: #999; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s ease;
+}
+#xxt-settings-modal .xxt-modal-close:hover { background: #e0e0e0; color: #555; }
+
+/* ===== 设置弹窗内容行 ===== */
+#xxt-settings-modal .xxt-setting-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px; border-radius: 8px;
+  background: #fafbfc; border: 1px solid #eef0f2;
+  margin-bottom: 10px; font-size: 13px; color: #444;
+}
+#xxt-settings-modal .xxt-setting-label {
   font-weight: 500; white-space: nowrap;
 }
-#xxt-panel .xxt-theme-group {
+#xxt-settings-modal .xxt-theme-group {
   display: flex; gap: 4px;
 }
-#xxt-panel .xxt-theme-btn {
-  padding: 3px 10px; border-radius: 14px; border: 1.5px solid #ddd;
+#xxt-settings-modal .xxt-theme-btn {
+  padding: 4px 12px; border-radius: 14px; border: 1.5px solid #ddd;
   background: #fff; color: #666; font-size: 11px; cursor: pointer;
   transition: all 0.2s ease; font-weight: 500;
 }
-#xxt-panel .xxt-theme-btn:hover { border-color: #bbb; color: #333; }
-#xxt-panel .xxt-theme-btn.active {
+#xxt-settings-modal .xxt-theme-btn:hover { border-color: #bbb; color: #333; }
+#xxt-settings-modal .xxt-theme-btn.active {
   background: #e8f4fd; color: #1e88e5; border-color: #1e88e5;
 }
-#xxt-panel .xxt-shortcut-display {
+#xxt-settings-modal .xxt-shortcut-display {
   display: flex; align-items: center; gap: 6px;
   padding: 4px 10px; border-radius: 6px;
   background: #f0f0f0; border: 1px solid #ddd;
   cursor: pointer; transition: all 0.2s ease; font-size: 12px;
 }
-#xxt-panel .xxt-shortcut-display:hover { border-color: #1e88e5; }
-#xxt-panel .xxt-shortcut-keys {
+#xxt-settings-modal .xxt-shortcut-display:hover { border-color: #1e88e5; }
+#xxt-settings-modal .xxt-shortcut-keys {
   color: #1e88e5; font-weight: 600; font-family: monospace;
   padding: 2px 6px; background: #e8f4fd; border-radius: 4px;
 }
-#xxt-panel .xxt-shortcut-hint {
+#xxt-settings-modal .xxt-shortcut-hint {
   color: #999; font-size: 11px;
 }
 
@@ -336,25 +376,34 @@
 [data-xxt-theme="dark"] #xxt-panel .xxt-wrong-hint {
   color: #f87171; background: #450a0a; border-color: #991b1b;
 }
-/* ===== 设置面板暗色 ===== */
-[data-xxt-theme="dark"] #xxt-panel .xxt-settings {
-  border-top-color: #313244;
+/* ===== 设置弹窗暗色 ===== */
+[data-xxt-theme="dark"] #xxt-panel .xxt-settings-btn { color: #a6adc8; }
+[data-xxt-theme="dark"] #xxt-panel .xxt-settings-btn:hover { background: #313244; color: #cdd6f4; }
+[data-xxt-theme="dark"] #xxt-settings-modal .xxt-modal-box {
+  background: #1e1e2e; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
 }
-[data-xxt-theme="dark"] #xxt-panel .xxt-setting-row {
-  background: #181825; border-color: #313244;
+[data-xxt-theme="dark"] #xxt-settings-modal .xxt-modal-header {
+  border-bottom-color: #313244;
 }
-[data-xxt-theme="dark"] #xxt-panel .xxt-setting-row:hover { background: #1e1e2e; }
-[data-xxt-theme="dark"] #xxt-panel .xxt-theme-btn {
+[data-xxt-theme="dark"] #xxt-settings-modal .xxt-modal-header h3 { color: #cdd6f4; }
+[data-xxt-theme="dark"] #xxt-settings-modal .xxt-modal-close {
+  background: #313244; color: #a6adc8;
+}
+[data-xxt-theme="dark"] #xxt-settings-modal .xxt-modal-close:hover { background: #45475a; color: #cdd6f4; }
+[data-xxt-theme="dark"] #xxt-settings-modal .xxt-setting-row {
+  background: #181825; border-color: #313244; color: #cdd6f4;
+}
+[data-xxt-theme="dark"] #xxt-settings-modal .xxt-theme-btn {
   background: #313244; color: #a6adc8; border-color: #45475a;
 }
-[data-xxt-theme="dark"] #xxt-panel .xxt-theme-btn:hover { border-color: #585b70; color: #cdd6f4; }
-[data-xxt-theme="dark"] #xxt-panel .xxt-theme-btn.active {
+[data-xxt-theme="dark"] #xxt-settings-modal .xxt-theme-btn:hover { border-color: #585b70; color: #cdd6f4; }
+[data-xxt-theme="dark"] #xxt-settings-modal .xxt-theme-btn.active {
   background: #1e3a5f; color: #89b4fa; border-color: #3b82f6;
 }
-[data-xxt-theme="dark"] #xxt-panel .xxt-shortcut-display {
+[data-xxt-theme="dark"] #xxt-settings-modal .xxt-shortcut-display {
   background: #11111b; border-color: #45475a; color: #cdd6f4;
 }
-[data-xxt-theme="dark"] #xxt-panel .xxt-shortcut-keys {
+[data-xxt-theme="dark"] #xxt-settings-modal .xxt-shortcut-keys {
   color: #89b4fa; background: #1e1e3e;
 }
   `;
@@ -543,6 +592,13 @@
     return shuffled;
   }
 
+  function extractImagesFromElement(el) {
+    const imgs = el.querySelectorAll('img');
+    return Array.from(imgs)
+      .map(img => img.src || img.getAttribute('data-src') || '')
+      .filter(url => url && url.length > 0);
+  }
+
   function extract() {
     const results = { '单选': [], '多选': [], '填空': [], '判断': [], '简答': [] };
     const typeOrder = [];
@@ -568,6 +624,9 @@
         let stem = cleanHtml(qtContent.innerHTML).trim();
         if (!stem) return;
 
+        // 提取题目中的图片 URL
+        const images = extractImagesFromElement(qtContent);
+
         const options = [];
         const markLetter = qLi.querySelector('.mark_letter');
         if (markLetter) {
@@ -584,7 +643,7 @@
         const wrong = isAnswerWrong(qLi, myAnswer, correctAnswer);
         if (wrong) wrongCount++;
 
-        results[sectionType].push({ stem, options, correctAnswer, myAnswer, isWrong: wrong });
+        results[sectionType].push({ stem, options, images, correctAnswer, myAnswer, isWrong: wrong });
       });
     });
 
@@ -592,6 +651,16 @@
   }
 
   // ==================== TXT 格式化 ====================
+  function formatImagesForText(images) {
+    if (!images || images.length === 0) return '';
+    return images.map(url => `\n[图片: ${url}]`).join('');
+  }
+
+  function formatImagesForMD(images) {
+    if (!images || images.length === 0) return '';
+    return images.map((url, i) => `\n![图片${images.length > 1 ? i + 1 : ''}](${url})`).join('');
+  }
+
   function formatOutput(results, typeOrder) {
     const typeLabels = {
       '单选': '单选题', '多选': '多选题', '填空': '填空题',
@@ -613,7 +682,7 @@
 
       for (const q of questions) {
         globalNum++;
-        output += `${globalNum}. (${label})${q.stem}\n`;
+        output += `${globalNum}. ${q.stem}${formatImagesForText(q.images)}\n`;
         if (q.options && q.options.length > 0) {
           for (const opt of q.options) {
             output += `${opt.letter}. ${opt.text}\n`;
@@ -683,7 +752,7 @@
         if (!q.isWrong) continue;
         wrongNum++;
         const typeLabel = qtype === '填空' ? '填空题' : '题目';
-        output += `${wrongNum}. (${typeLabel})${q.stem}\n`;
+        output += `${wrongNum}. (${typeLabel})${q.stem}${formatImagesForText(q.images)}\n`;
         output += `   我的答案: ${q.myAnswer || '无'}\n`;
         output += `   正确答案: ${q.correctAnswer || '（未找到答案）'}\n\n`;
       }
@@ -713,7 +782,7 @@
 
       for (const q of questions) {
         globalNum++;
-        output += `**${globalNum}.** ${q.stem}\n\n`;
+        output += `**${globalNum}.** ${q.stem}${formatImagesForMD(q.images)}\n\n`;
         if (q.options && q.options.length > 0) {
           for (const opt of q.options) {
             output += `- ${opt.letter}. ${opt.text}\n`;
@@ -773,7 +842,7 @@
       for (const q of questions) {
         if (!q.isWrong) continue;
         wrongNum++;
-        output += `**${wrongNum}.** ${q.stem}\n\n`;
+        output += `**${wrongNum}.** ${q.stem}${formatImagesForMD(q.images)}\n\n`;
         output += `- 我的答案: ${q.myAnswer || '无'}\n`;
         output += `- 正确答案: ${q.correctAnswer || '（未找到答案）'}\n\n`;
       }
@@ -786,10 +855,51 @@
     return stem.replace(/\(\s{3,}\)/g, '(   )');
   }
 
+  async function fetchImageAsBase64(url) {
+    try {
+      const resp = await fetch(url, { mode: 'cors' });
+      if (!resp.ok) return null;
+      const blob = await resp.blob();
+      if (!blob.type.startsWith('image/')) return null;
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(blob);
+      });
+    } catch (e) {
+      return null;
+    }
+  }
+
   async function generateWordBlob(results, typeOrder, title) {
-    const { Document, Packer, Paragraph, TextRun,
+    const { Document, Packer, Paragraph, TextRun, ImageRun,
             AlignmentType, convertMillimetersToTwip,
             TabStopType } = docx;
+
+    async function buildImageParagraphs(images) {
+      const paragraphs = [];
+      if (!images || images.length === 0) return paragraphs;
+      for (const url of images) {
+        const base64 = await fetchImageAsBase64(url);
+        if (base64) {
+          paragraphs.push(new Paragraph({
+            children: [new ImageRun({
+              data: base64,
+              transformation: { width: 300, height: 200 },
+              type: 'png'
+            })],
+            spacing: { after: 80 }
+          }));
+        } else {
+          paragraphs.push(new Paragraph({
+            children: [new TextRun({ text: `[图片: ${url}]`, font: "宋体", size: 20, italics: true, color: "888888" })],
+            spacing: { after: 80 }
+          }));
+        }
+      }
+      return paragraphs;
+    }
 
     const typeHeaders = {
       '单选': '一、单项选择题', '多选': '二、多项选择题',
@@ -828,9 +938,9 @@
             children: [new TextRun({ text: `${qNum}. ${normalizeStem(q.stem)}`, font: "宋体", size: 24 })],
             spacing: { after: 40 }
           }));
+          children.push(...await buildImageParagraphs(q.images));
           const options = q.options || [];
           if (options.length > 0) {
-            // 制表位对齐：每行两个选项，Tab 对齐，无表格无边框
             for (let i = 0; i < options.length; i += 2) {
               const left = options[i];
               const right = options[i + 1];
@@ -847,18 +957,23 @@
         } else if (qtype === '填空') {
           children.push(new Paragraph({
             children: [new TextRun({ text: `${qNum}. ${normalizeStem(q.stem)}`, font: "宋体", size: 24 })],
-            spacing: { after: 160 }
+            spacing: { after: 40 }
           }));
+          children.push(...await buildImageParagraphs(q.images));
+          children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
         } else if (qtype === '判断') {
           children.push(new Paragraph({
             children: [new TextRun({ text: `${qNum}. ${normalizeStem(q.stem)} ( )`, font: "宋体", size: 24 })],
-            spacing: { after: 160 }
+            spacing: { after: 40 }
           }));
+          children.push(...await buildImageParagraphs(q.images));
+          children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
         } else if (qtype === '简答') {
           children.push(new Paragraph({
             children: [new TextRun({ text: `${qNum}. ${normalizeStem(q.stem)}`, font: "宋体", size: 24 })],
             spacing: { after: 40 }
           }));
+          children.push(...await buildImageParagraphs(q.images));
           for (let i = 0; i < 8; i++) {
             children.push(new Paragraph({
               children: [new TextRun({ text: '', font: "宋体", size: 24 })],
@@ -908,7 +1023,12 @@
     panel.innerHTML = `
       <div class="xxt-header">
         <h3>学习通题目提取器</h3>
-        <button class="xxt-close-btn" id="xxt-closeBtn">&times;</button>
+        <div style="display:flex;align-items:center;gap:4px;">
+          <button class="xxt-settings-btn" id="xxt-settingsBtn" title="设置">
+            <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+          </button>
+          <button class="xxt-close-btn" id="xxt-closeBtn">&times;</button>
+        </div>
       </div>
       <button id="xxt-btnExtract" class="xxt-btn xxt-btn-extract">提取本页题目</button>
       <div id="xxt-status" class="xxt-hidden"></div>
@@ -943,24 +1063,6 @@
           <span>打乱题目顺序</span>
         </label>
         <div id="xxt-wrong-hint" class="xxt-wrong-hint xxt-hidden"></div>
-        <div class="xxt-settings">
-          <div class="xxt-settings-title">设置</div>
-          <div class="xxt-setting-row">
-            <span class="xxt-setting-label">主题</span>
-            <div class="xxt-theme-group" id="xxt-theme-group">
-              <button class="xxt-theme-btn" data-theme="auto">自动</button>
-              <button class="xxt-theme-btn" data-theme="light">浅色</button>
-              <button class="xxt-theme-btn" data-theme="dark">深色</button>
-            </div>
-          </div>
-          <div class="xxt-setting-row">
-            <span class="xxt-setting-label">快捷键</span>
-            <div class="xxt-shortcut-display" id="xxt-shortcut-display">
-              <span class="xxt-shortcut-keys" id="xxt-shortcut-keys"></span>
-              <span class="xxt-shortcut-hint" id="xxt-shortcut-hint">点击修改</span>
-            </div>
-          </div>
-        </div>
       </div>
     `;
     document.body.appendChild(panel);
@@ -989,9 +1091,37 @@
       if (!panel.contains(e.target) && e.target !== btn) panel.classList.remove('open');
     });
 
-    // ==================== 设置面板事件 ====================
+    // ==================== 设置弹窗 ====================
+    // 创建设置弹窗
+    const modal = document.createElement('div');
+    modal.id = 'xxt-settings-modal';
+    modal.innerHTML = `
+      <div class="xxt-modal-box">
+        <div class="xxt-modal-header">
+          <h3>设置</h3>
+          <button class="xxt-modal-close" id="xxt-modal-close">&times;</button>
+        </div>
+        <div class="xxt-setting-row">
+          <span class="xxt-setting-label">主题</span>
+          <div class="xxt-theme-group" id="xxt-theme-group">
+            <button class="xxt-theme-btn" data-theme="auto">自动</button>
+            <button class="xxt-theme-btn" data-theme="light">浅色</button>
+            <button class="xxt-theme-btn" data-theme="dark">深色</button>
+          </div>
+        </div>
+        <div class="xxt-setting-row">
+          <span class="xxt-setting-label">快捷键</span>
+          <div class="xxt-shortcut-display" id="xxt-shortcut-display">
+            <span class="xxt-shortcut-keys" id="xxt-shortcut-keys"></span>
+            <span class="xxt-shortcut-hint" id="xxt-shortcut-hint">点击修改</span>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
     // 初始化主题按钮状态
-    const themeBtns = document.querySelectorAll('#xxt-theme-group .xxt-theme-btn');
+    const themeBtns = modal.querySelectorAll('.xxt-theme-btn');
     function updateThemeUI() {
       themeBtns.forEach(b => {
         b.classList.toggle('active', b.dataset.theme === currentSettings.theme);
@@ -1009,9 +1139,9 @@
     });
 
     // 初始化快捷键显示
-    const shortcutDisplay = document.getElementById('xxt-shortcut-display');
-    const shortcutKeysEl = document.getElementById('xxt-shortcut-keys');
-    const shortcutHintEl = document.getElementById('xxt-shortcut-hint');
+    const shortcutDisplay = modal.querySelector('#xxt-shortcut-display');
+    const shortcutKeysEl = modal.querySelector('#xxt-shortcut-keys');
+    const shortcutHintEl = modal.querySelector('#xxt-shortcut-hint');
     function updateShortcutUI() {
       shortcutKeysEl.textContent = formatShortcutLabel(currentSettings.shortcut);
     }
@@ -1028,7 +1158,6 @@
         e.preventDefault();
         e.stopPropagation();
         const key = e.key;
-        // 忽略单独的修饰键
         if (['Control', 'Shift', 'Alt', 'Meta'].includes(key)) return;
 
         currentSettings.shortcut = {
@@ -1043,7 +1172,6 @@
       }
       document.addEventListener('keydown', onKeyDown, true);
 
-      // 3 秒后自动取消录制
       setTimeout(() => {
         if (window.__xxt_recording) {
           window.__xxt_recording = false;
@@ -1053,6 +1181,25 @@
           shortcutDisplay.style.borderColor = '';
         }
       }, 5000);
+    });
+
+    // 弹窗打开/关闭
+    const settingsBtn = document.getElementById('xxt-settingsBtn');
+    const modalClose = modal.querySelector('#xxt-modal-close');
+
+    settingsBtn.addEventListener('click', () => {
+      updateThemeUI();
+      updateShortcutUI();
+      modal.classList.add('open');
+    });
+    modalClose.addEventListener('click', () => { modal.classList.remove('open'); });
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.classList.remove('open');
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && modal.classList.contains('open')) {
+        modal.classList.remove('open');
+      }
     });
 
     // 格式切换时更新文件名，Word 格式隐藏答案/错题选项

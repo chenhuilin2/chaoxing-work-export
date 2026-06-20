@@ -1225,14 +1225,10 @@
           <input type="text" id="xxt-filename" class="xxt-filename xxt-hidden" placeholder="文件名（默认自动生成）">
           <div class="xxt-format-row">
             <span>输出格式</span>
-            <label><input type="radio" name="xxt-fmt" value="txt" checked> TXT</label>
+            <label><input type="radio" name="xxt-fmt" value="word" checked> Word 试卷</label>
+            <label><input type="radio" name="xxt-fmt" value="txt"> TXT</label>
             <label><input type="radio" name="xxt-fmt" value="md"> MD</label>
-            <label><input type="radio" name="xxt-fmt" value="word"> Word 试卷</label>
           </div>
-        </div>
-        <div class="xxt-actions">
-          <button id="xxt-btnDownload" class="xxt-btn xxt-btn-outline">&#8681; 下载</button>
-          <button id="xxt-btnCopy" class="xxt-btn xxt-btn-outline">&#128203; 复制文本</button>
         </div>
         <label class="xxt-toggle">
           <input type="checkbox" id="xxt-chkAnswers">
@@ -1249,6 +1245,10 @@
           <div class="xxt-checkbox-wrap"></div>
           <span>打乱题目顺序</span>
         </label>
+        <div class="xxt-actions">
+          <button id="xxt-btnDownload" class="xxt-btn xxt-btn-outline">&#8681; 下载</button>
+          <button id="xxt-btnCopy" class="xxt-btn xxt-btn-outline">&#128203; 复制文本</button>
+        </div>
         <div id="xxt-wrong-hint" class="xxt-wrong-hint xxt-hidden"></div>
       </div>
     `;
@@ -1274,8 +1274,12 @@
 
     btn.addEventListener('click', () => { panel.classList.toggle('open'); });
     els.closeBtn.addEventListener('click', () => { panel.classList.remove('open'); });
+    // 点击面板外部关闭面板，但不影响设置弹窗和历史记录弹窗内的操作
     document.addEventListener('click', (e) => {
-      if (!panel.contains(e.target) && e.target !== btn) panel.classList.remove('open');
+      if (!panel.contains(e.target) && e.target !== btn
+        && !modal.contains(e.target) && !historyModal.contains(e.target)) {
+        panel.classList.remove('open');
+      }
     });
 
     // ==================== 设置弹窗 ====================
@@ -1515,9 +1519,10 @@
       }
     });
 
-    // 格式切换时更新文件名，Word 格式隐藏错题选项（答案选项保留）
+    // 格式/选项切换时更新文件名，Word 格式隐藏错题选项
     panel.addEventListener('change', (e) => {
-      if (e.target.name === 'xxt-fmt' && extractedData) {
+      if (!extractedData) return;
+      if (e.target.name === 'xxt-fmt') {
         updateFilename(els);
         const isWord = getFormat(els) === 'word';
         const chkWrong = document.getElementById('xxt-chkWrong');
@@ -1525,6 +1530,10 @@
         const wrongHint = document.getElementById('xxt-wrong-hint');
         if (wrongToggle) wrongToggle.style.display = isWord ? 'none' : '';
         if (wrongHint) wrongHint.style.display = isWord ? 'none' : '';
+      }
+      // 勾选/取消附加答案时更新文件名
+      if (e.target === els.chkAnswers) {
+        updateFilename(els);
       }
     });
 
@@ -1692,7 +1701,9 @@
     const cleanTitle = title.replace(/[\\/:*?"<>|]/g, '_').substring(0, 60);
     const fmt = getFormat(els);
     const ext = fmt === 'md' ? '.md' : fmt === 'word' ? '.docx' : '.txt';
-    els.filename.value = cleanTitle + ext;
+    // 勾选附加答案时文件名追加"（含答案）"
+    const suffix = els.chkAnswers.checked ? '（含答案）' : '';
+    els.filename.value = cleanTitle + suffix + ext;
     els.filename.classList.remove('xxt-hidden');
   }
 

@@ -504,6 +504,9 @@
     theme: 'auto',           // 'auto' | 'light' | 'dark'
     shortcut: {
       ctrl: true, shift: true, alt: false, key: 'e'
+    },
+    hideShortcut: {
+      ctrl: true, shift: true, alt: false, key: 'h'
     }
   };
 
@@ -514,11 +517,16 @@
         const saved = JSON.parse(raw);
         return {
           theme: saved.theme || DEFAULT_SETTINGS.theme,
-          shortcut: { ...DEFAULT_SETTINGS.shortcut, ...(saved.shortcut || {}) }
+          shortcut: { ...DEFAULT_SETTINGS.shortcut, ...(saved.shortcut || {}) },
+          hideShortcut: { ...DEFAULT_SETTINGS.hideShortcut, ...(saved.hideShortcut || {}) }
         };
       }
     } catch (e) { /* ignore */ }
-    return { ...DEFAULT_SETTINGS, shortcut: { ...DEFAULT_SETTINGS.shortcut } };
+    return {
+      ...DEFAULT_SETTINGS,
+      shortcut: { ...DEFAULT_SETTINGS.shortcut },
+      hideShortcut: { ...DEFAULT_SETTINGS.hideShortcut }
+    };
   }
 
   function saveSettings(settings) {
@@ -645,6 +653,23 @@
     if (btnExtract && !btnExtract.disabled) {
       btnExtract.click();
     }
+  });
+
+  // 一键隐藏/显示浮窗及按钮快捷键
+  document.addEventListener('keydown', (e) => {
+    if (window.__xxt_recording) return;
+    if (!isShortcutMatch(e, currentSettings.hideShortcut)) return;
+
+    e.preventDefault();
+    const panel = document.getElementById('xxt-panel');
+    const btn = document.getElementById('xxt-panel-btn');
+    if (!panel && !btn) return;
+
+    // 面板打开时需先关闭再隐藏
+    if (panel) panel.classList.remove('open');
+    const hidden = panel ? panel.style.display === 'none' : (btn ? btn.style.display === 'none' : false);
+    if (panel) panel.style.display = hidden ? '' : 'none';
+    if (btn) btn.style.display = hidden ? '' : 'none';
   });
 
   // ==================== 提取逻辑 ====================
@@ -813,12 +838,14 @@
       if (!stem) return;
       // 去掉前面的题号和题型标签，如 "1. (单选题) " 或 "37. (填空题) "
       stem = stem.replace(/^\d+\.\s*/, '').replace(/^\([^)]+\)\s*/, '').trim();
+      // 去掉末尾的分数字样，如 "(1.0)"、"(2.0)"
+      stem = stem.replace(/\s*\(\d+\.\d+\)\s*$/, '').trim();
       if (!stem) return;
 
       // 提取题目中的图片
       const images = extractImagesFromElement(markName);
 
-      // 从 .answerBg 提取选项
+      // 从 .answerBg 提取选项，按字母顺序排列
       const options = [];
       const answerBgs = qLi.querySelectorAll('.answerBg');
       answerBgs.forEach(bg => {
@@ -830,6 +857,8 @@
           if (letter && text) options.push({ letter, text });
         }
       });
+      // 按字母顺序排序（data 属性存真实字母，DOM 顺序已被打乱）
+      options.sort((a, b) => a.letter.localeCompare(b.letter));
 
       // 新版本页面无正确答案/我的答案
       results[sectionType].push({
@@ -1353,10 +1382,17 @@
           </div>
         </div>
         <div class="xxt-setting-row">
-          <span class="xxt-setting-label">快捷键</span>
+          <span class="xxt-setting-label">提取快捷键</span>
           <div class="xxt-shortcut-display" id="xxt-shortcut-display">
             <span class="xxt-shortcut-keys" id="xxt-shortcut-keys"></span>
             <span class="xxt-shortcut-hint" id="xxt-shortcut-hint">点击修改</span>
+          </div>
+        </div>
+        <div class="xxt-setting-row">
+          <span class="xxt-setting-label">隐藏浮窗快捷键</span>
+          <div class="xxt-shortcut-display" id="xxt-hide-shortcut-display">
+            <span class="xxt-shortcut-keys" id="xxt-hide-shortcut-keys"></span>
+            <span class="xxt-shortcut-hint" id="xxt-hide-shortcut-hint">点击修改</span>
           </div>
         </div>
       </div>
@@ -1422,6 +1458,50 @@
           updateShortcutUI();
           shortcutHintEl.textContent = '点击修改';
           shortcutDisplay.style.borderColor = '';
+        }
+      }, 5000);
+    });
+
+    // 隐藏浮窗快捷键初始化与录制
+    const hideShortcutDisplay = modal.querySelector('#xxt-hide-shortcut-display');
+    const hideShortcutKeysEl = modal.querySelector('#xxt-hide-shortcut-keys');
+    const hideShortcutHintEl = modal.querySelector('#xxt-hide-shortcut-hint');
+    function updateHideShortcutUI() {
+      hideShortcutKeysEl.textContent = formatShortcutLabel(currentSettings.hideShortcut);
+    }
+    updateHideShortcutUI();
+
+    hideShortcutDisplay.addEventListener('click', () => {
+      hideShortcutHintEl.textContent = '请按下新快捷键...';
+      hideShortcutKeysEl.textContent = '...';
+      hideShortcutDisplay.style.borderColor = '#1e88e5';
+      window.__xxt_recording = true;
+
+      function onKeyDown(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const key = e.key;
+        if (['Control', 'Shift', 'Alt', 'Meta'].includes(key)) return;
+
+        currentSettings.hideShortcut = {
+          ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, key: key.toLowerCase()
+        };
+        saveSettings(currentSettings);
+        updateHideShortcutUI();
+        hideShortcutHintEl.textContent = '点击修改';
+        hideShortcutDisplay.style.borderColor = '';
+        window.__xxt_recording = false;
+        document.removeEventListener('keydown', onKeyDown, true);
+      }
+      document.addEventListener('keydown', onKeyDown, true);
+
+      setTimeout(() => {
+        if (window.__xxt_recording) {
+          window.__xxt_recording = false;
+          document.removeEventListener('keydown', onKeyDown, true);
+          updateHideShortcutUI();
+          hideShortcutHintEl.textContent = '点击修改';
+          hideShortcutDisplay.style.borderColor = '';
         }
       }, 5000);
     });

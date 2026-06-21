@@ -1,8 +1,5 @@
-requirement.md
-source.htmlx
 img/*
 html/*
 docx/*
+md/*
 AGENTS.md
-version.md
-.gitignore

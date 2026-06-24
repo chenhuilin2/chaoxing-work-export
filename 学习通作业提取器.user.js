@@ -697,26 +697,256 @@
     return div.textContent || div.innerText || '';
   }
 
-  function extractCorrectAnswer(qLi) {
+  const RICH_BLOCK_TAGS = new Set(['P', 'DIV', 'LI', 'DD', 'DT', 'TR', 'TABLE', 'SECTION']);
+
+  function resolveImageUrl(img) {
+    if (!img) return '';
+    const attrs = ['src', 'data-src', 'data-original', 'origin-src', 'fileid'];
+    for (const attr of attrs) {
+      const value = img.getAttribute(attr);
+      if (value && value.trim()) return value.trim();
+    }
+    return img.currentSrc || img.src || '';
+  }
+
+  function normalizeRichContent(parts) {
+    const normalized = [];
+    const pushText = (text) => {
+      if (!text) return;
+      const value = text.replace(/\u00a0/g, ' ').replace(/[ \t\r\f]+/g, ' ');
+      if (!value) return;
+      const last = normalized[normalized.length - 1];
+      if (last && last.type === 'text') last.text += value;
+      else normalized.push({ type: 'text', text: value });
+    };
+    const pushBreak = () => {
+      const last = normalized[normalized.length - 1];
+      if (!last || last.type !== 'break') normalized.push({ type: 'break' });
+    };
+
+    for (const part of parts || []) {
+      if (!part) continue;
+      if (part.type === 'text') {
+        pushText(part.text);
+      } else if (part.type === 'image' && part.url) {
+        normalized.push(part);
+      } else if (part.type === 'break') {
+        pushBreak();
+      }
+    }
+
+    while (normalized[0] && normalized[0].type === 'break') normalized.shift();
+    while (normalized[normalized.length - 1] && normalized[normalized.length - 1].type === 'break') normalized.pop();
+    return normalized;
+  }
+
+  function extractRichContent(el) {
+    const parts = [];
+    if (!el) return parts;
+
+    const walk = (node) => {
+      if (!node) return;
+      if (node.nodeType === Node.TEXT_NODE) {
+        parts.push({ type: 'text', text: node.nodeValue || '' });
+        return;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+      const tag = node.tagName;
+      if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return;
+      if (tag === 'IMG') {
+        const url = resolveImageUrl(node);
+        if (url) parts.push({ type: 'image', url, alt: node.getAttribute('alt') || '' });
+        return;
+      }
+      if (tag === 'BR') {
+        parts.push({ type: 'break' });
+        return;
+      }
+
+      const beforeLen = parts.length;
+      node.childNodes.forEach(walk);
+      if (RICH_BLOCK_TAGS.has(tag) && parts.length > beforeLen) parts.push({ type: 'break' });
+    };
+
+    el.childNodes.forEach(walk);
+    return normalizeRichContent(parts);
+  }
+
+  function richContentToText(content, imageFormatter) {
+    let text = '';
+    for (const part of content || []) {
+      if (part.type === 'text') text += part.text;
+      else if (part.type === 'image') text += imageFormatter ? imageFormatter(part.url, part) : '';
+      else if (part.type === 'break') text += '\n';
+    }
+    return text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  function stripOptionPrefix(content) {
+    const parts = (content || []).map(part => part.type === 'text' ? { ...part } : part);
+    let letter = '';
+    for (const part of parts) {
+      if (part.type !== 'text') continue;
+      if (!part.text.trim()) continue;
+      const match = part.text.match(/^\s*([A-H])\s*[\.、．]?\s*/i);
+      if (match) {
+        letter = match[1].toUpperCase();
+        part.text = part.text.slice(match[0].length);
+      }
+      break;
+    }
+    return { letter, content: normalizeRichContent(parts) };
+  }
+
+  function stripQuestionPrefix(content) {
+    const parts = (content || []).map(part => part.type === 'text' ? { ...part } : part);
+    let strippedNumber = false;
+    let strippedType = false;
+    for (const part of parts) {
+      if (part.type !== 'text') continue;
+      part.text = part.text.replace(/\s*\(\d+\.\d+\)\s*$/, '');
+      if (!strippedNumber) {
+        const before = part.text;
+        part.text = part.text.replace(/^\s*\d+\.\s*/, '');
+        if (part.text !== before || part.text.trim()) strippedNumber = true;
+      }
+      if (!strippedType) {
+        const before = part.text;
+        part.text = part.text.replace(/^\s*\([^)]+\)\s*/, '');
+        if (part.text !== before || part.text.trim()) strippedType = true;
+      }
+    }
+    return normalizeRichContent(parts);
+  }
+
+  function stripAnswerLabel(content) {
+    const parts = (content || []).map(part => part.type === 'text' ? { ...part } : part);
+    for (const part of parts) {
+      if (part.type !== 'text') continue;
+      if (!part.text.trim()) continue;
+      part.text = part.text.replace(/^\s*(正确答案|参考答案|答案)\s*[:：]?\s*/, '');
+      break;
+    }
+    return normalizeRichContent(parts);
+  }
+
+  function hasRichContent(content) {
+    return (content || []).some(part => part.type === 'image' || (part.type === 'text' && part.text.trim()));
+  }
+
+  function extractCorrectAnswerContent(qLi) {
     const markAnswer = qLi.querySelector('.mark_answer');
-    if (!markAnswer) return '';
+    if (!markAnswer) return [];
+
+    const contents = [];
+    markAnswer.querySelectorAll('.rightAnswerContent').forEach(el => {
+      const content = stripAnswerLabel(extractRichContent(el));
+      if (hasRichContent(content)) {
+        if (contents.length > 0) contents.push({ type: 'text', text: '；' });
+        contents.push(...content);
+      }
+    });
+    if (contents.length > 0) return normalizeRichContent(contents);
 
     const markKey = markAnswer.querySelector('.mark_key');
     if (markKey) {
-      const rightEl = markKey.querySelector('.rightAnswerContent');
-      if (rightEl) return rightEl.textContent.trim();
-      const rightEl2 = markKey.querySelector('.colorGreen .rightAnswerContent');
-      if (rightEl2) return rightEl2.textContent.trim();
+      const rightEl = markKey.querySelector('.colorGreen');
+      if (rightEl) {
+        const content = stripAnswerLabel(extractRichContent(rightEl));
+        if (hasRichContent(content)) return content;
+      }
     }
 
     const greenFill = markAnswer.querySelector('.mark_fill.colorGreen');
     if (greenFill) {
-      const dds = greenFill.querySelectorAll('dd.rightAnswerContent');
-      if (dds.length > 0) {
-        return Array.from(dds).map(dd => dd.textContent.trim()).join('；');
+      const dds = greenFill.querySelectorAll('dd');
+      const fillContents = [];
+      dds.forEach(dd => {
+        const content = stripAnswerLabel(extractRichContent(dd));
+        if (hasRichContent(content)) {
+          if (fillContents.length > 0) fillContents.push({ type: 'text', text: '；' });
+          fillContents.push(...content);
+        }
+      });
+      if (fillContents.length > 0) return normalizeRichContent(fillContents);
+    }
+
+    const fallbackSelectors = ['[class*="rightAnswer"]', '.mark_key .colorGreen', '.mark_fill.colorGreen'];
+    for (const selector of fallbackSelectors) {
+      const el = markAnswer.querySelector(selector);
+      if (!el) continue;
+      const content = stripAnswerLabel(extractRichContent(el));
+      if (hasRichContent(content)) {
+        return content;
       }
     }
-    return '';
+    return [];
+  }
+
+  function extractCorrectAnswer(qLi) {
+    return richContentToText(extractCorrectAnswerContent(qLi), () => '').replace(/\s+/g, ' ').trim();
+  }
+
+  function questionContent(q) {
+    if (hasRichContent(q.stemContent)) return q.stemContent;
+    const parts = q.stem ? [{ type: 'text', text: q.stem }] : [];
+    if (q.images && q.images.length) {
+      q.images.forEach(url => parts.push({ type: 'break' }, { type: 'image', url }));
+    }
+    return normalizeRichContent(parts);
+  }
+
+  function optionContent(opt) {
+    if (hasRichContent(opt.content)) return opt.content;
+    return opt.text ? [{ type: 'text', text: opt.text }] : [];
+  }
+
+  function answerContent(q) {
+    if (hasRichContent(q.correctAnswerContent)) return q.correctAnswerContent;
+    return q.correctAnswer ? [{ type: 'text', text: q.correctAnswer }] : [];
+  }
+
+  function escapeMarkdownAlt(text) {
+    return (text || '图片').replace(/[\[\]\n\r]/g, ' ').trim() || '图片';
+  }
+
+  function escapeMarkdownUrl(url) {
+    return (url || '').replace(/\)/g, '%29').replace(/\(/g, '%28');
+  }
+
+  function formatRichForText(content) {
+    return richContentToText(content, (url) => `\n[图片: ${url}]\n`);
+  }
+
+  function formatRichForMD(content) {
+    return richContentToText(content, (url, part) => `\n![${escapeMarkdownAlt(part.alt)}](${escapeMarkdownUrl(url)})\n`);
+  }
+
+  function richTextOnly(content) {
+    return richContentToText(content || [], () => '').replace(/\s+/g, ' ').trim();
+  }
+
+  function extractOptionFromLegacyLi(li, index) {
+    const parsed = stripOptionPrefix(extractRichContent(li));
+    const letter = parsed.letter || String.fromCharCode(65 + index);
+    const text = richTextOnly(parsed.content);
+    if (letter && (text || hasRichContent(parsed.content))) {
+      return { letter, text, content: parsed.content };
+    }
+    return null;
+  }
+
+  function extractOptionFromAnswerBg(bg, index) {
+    const numOption = bg.querySelector('.num_option');
+    const answerP = bg.querySelector('.answer_p');
+    if (numOption && answerP) {
+      const letter = (numOption.getAttribute('data') || numOption.textContent.trim() || String.fromCharCode(65 + index)).trim().toUpperCase();
+      const content = extractRichContent(answerP);
+      const text = richTextOnly(content);
+      if (letter && (text || hasRichContent(content))) return { letter, text, content };
+    }
+    return null;
   }
 
   function extractMyAnswer(qLi, qtype) {
@@ -794,29 +1024,30 @@
       questionLis.forEach(qLi => {
         const qtContent = qLi.querySelector('.qtContent');
         if (!qtContent) return;
-        let stem = cleanHtml(qtContent.innerHTML).trim();
-        if (!stem) return;
+        const stemContent = extractRichContent(qtContent);
+        let stem = richTextOnly(stemContent);
+        if (!stem && !hasRichContent(stemContent)) return;
 
         // 提取题目中的图片 URL
-        const images = extractImagesFromElement(qtContent);
+        const images = stemContent.filter(part => part.type === 'image').map(part => part.url);
 
         const options = [];
         const markLetter = qLi.querySelector('.mark_letter');
         if (markLetter) {
-          markLetter.querySelectorAll('li').forEach(li => {
-            const text = li.textContent.trim();
-            const match = text.match(/^([A-H])\.?\s*(.+)$/);
-            if (match) options.push({ letter: match[1], text: match[2].trim() });
+          markLetter.querySelectorAll('li').forEach((li, index) => {
+            const option = extractOptionFromLegacyLi(li, index);
+            if (option) options.push(option);
           });
         }
 
-        const correctAnswer = extractCorrectAnswer(qLi);
+        const correctAnswerContent = extractCorrectAnswerContent(qLi);
+        const correctAnswer = richTextOnly(correctAnswerContent);
         const myAnswer = extractMyAnswer(qLi, sectionType);
         if (myAnswer) hasAnyMyAnswer = true;
         const wrong = isAnswerWrong(qLi, myAnswer, correctAnswer);
         if (wrong) wrongCount++;
 
-        results[sectionType].push({ stem, options, images, correctAnswer, myAnswer, isWrong: wrong });
+        results[sectionType].push({ stem, stemContent, options, images, correctAnswer, correctAnswerContent, myAnswer, isWrong: wrong });
       });
     });
 
@@ -839,36 +1070,27 @@
       // 从 h3.mark_name 提取题干
       const markName = qLi.querySelector('.mark_name');
       if (!markName) return;
-      let stem = markName.textContent.trim();
-      if (!stem) return;
-      // 去掉前面的题号和题型标签，如 "1. (单选题) " 或 "37. (填空题) "
-      stem = stem.replace(/^\d+\.\s*/, '').replace(/^\([^)]+\)\s*/, '').trim();
-      // 去掉末尾的分数字样，如 "(1.0)"、"(2.0)"
-      stem = stem.replace(/\s*\(\d+\.\d+\)\s*$/, '').trim();
-      if (!stem) return;
+      const stemContent = stripQuestionPrefix(extractRichContent(markName));
+      let stem = richTextOnly(stemContent);
+      if (!stem && !hasRichContent(stemContent)) return;
 
       // 提取题目中的图片
-      const images = extractImagesFromElement(markName);
+      const images = stemContent.filter(part => part.type === 'image').map(part => part.url);
 
       // 从 .answerBg 提取选项，按字母顺序排列
       const options = [];
       const answerBgs = qLi.querySelectorAll('.answerBg');
-      answerBgs.forEach(bg => {
-        const numOption = bg.querySelector('.num_option');
-        const answerP = bg.querySelector('.answer_p');
-        if (numOption && answerP) {
-          const letter = numOption.getAttribute('data') || numOption.textContent.trim();
-          const text = answerP.textContent.trim();
-          if (letter && text) options.push({ letter, text });
-        }
+      answerBgs.forEach((bg, index) => {
+        const option = extractOptionFromAnswerBg(bg, index);
+        if (option) options.push(option);
       });
       // 按字母顺序排序（data 属性存真实字母，DOM 顺序已被打乱）
       options.sort((a, b) => a.letter.localeCompare(b.letter));
 
       // 新版本页面无正确答案/我的答案
       results[sectionType].push({
-        stem, options, images,
-        correctAnswer: '', myAnswer: '', isWrong: false
+        stem, stemContent, options, images,
+        correctAnswer: '', correctAnswerContent: [], myAnswer: '', isWrong: false
       });
     });
 
@@ -907,10 +1129,10 @@
 
       for (const q of questions) {
         globalNum++;
-        output += `${globalNum}. ${q.stem}${formatImagesForText(q.images)}\n`;
+        output += `${globalNum}. ${formatRichForText(questionContent(q))}\n`;
         if (q.options && q.options.length > 0) {
           for (const opt of q.options) {
-            output += `${opt.letter}. ${opt.text}\n`;
+            output += `${opt.letter}. ${formatRichForText(optionContent(opt))}\n`;
           }
         }
         output += '\n';
@@ -937,7 +1159,8 @@
 
       for (const q of questions) {
         globalNum++;
-        const answer = q.correctAnswer || '（未找到答案）';
+        const answerContentValue = answerContent(q);
+        const answer = hasRichContent(answerContentValue) ? formatRichForText(answerContentValue) : '（未找到答案）';
         if (qtype === '填空' && answer.includes('；')) {
           const parts = answer.split('；').map(p => p.trim().replace(/^\(\d+\)\s*/, ''));
           output += `${globalNum}. \n`;
@@ -977,9 +1200,10 @@
         globalNum++;
         if (!q.isWrong) continue;
         const typeLabel = qtype === '填空' ? '填空题' : '题目';
-        output += `${globalNum}. (${typeLabel})${q.stem}${formatImagesForText(q.images)}\n`;
+        output += `${globalNum}. (${typeLabel})${formatRichForText(questionContent(q))}\n`;
         output += `   我的答案: ${q.myAnswer || '无'}\n`;
-        output += `   正确答案: ${q.correctAnswer || '（未找到答案）'}\n\n`;
+        const answer = hasRichContent(answerContent(q)) ? formatRichForText(answerContent(q)) : '（未找到答案）';
+        output += `   正确答案: ${answer}\n\n`;
       }
     }
     return output.replace(/\n+$/, '');
@@ -1007,10 +1231,10 @@
 
       for (const q of questions) {
         globalNum++;
-        output += `**${globalNum}.** ${q.stem}${formatImagesForMD(q.images)}\n\n`;
+        output += `**${globalNum}.** ${formatRichForMD(questionContent(q))}\n\n`;
         if (q.options && q.options.length > 0) {
           for (const opt of q.options) {
-            output += `- ${opt.letter}. ${opt.text}\n`;
+            output += `- ${opt.letter}. ${formatRichForMD(optionContent(opt))}\n`;
           }
           output += '\n';
         } else {
@@ -1032,7 +1256,8 @@
       output += `**${typeLabels[qtype]}**\n\n`;
       for (const q of questions) {
         globalNum++;
-        const answer = q.correctAnswer || '（未找到答案）';
+        const answerContentValue = answerContent(q);
+        const answer = hasRichContent(answerContentValue) ? formatRichForMD(answerContentValue) : '（未找到答案）';
         if (qtype === '填空' && answer.includes('；')) {
           const parts = answer.split('；').map(p => p.trim().replace(/^\(\d+\)\s*/, ''));
           output += `${globalNum}.  \n`;
@@ -1067,9 +1292,10 @@
       for (const q of questions) {
         globalNum++;
         if (!q.isWrong) continue;
-        output += `**${globalNum}.** ${q.stem}${formatImagesForMD(q.images)}\n\n`;
+        output += `**${globalNum}.** ${formatRichForMD(questionContent(q))}\n\n`;
         output += `- 我的答案: ${q.myAnswer || '无'}\n`;
-        output += `- 正确答案: ${q.correctAnswer || '（未找到答案）'}\n\n`;
+        const answer = hasRichContent(answerContent(q)) ? formatRichForMD(answerContent(q)) : '（未找到答案）';
+        output += `- 正确答案: ${answer}\n\n`;
       }
     }
     return output.replace(/\n+$/, '');
@@ -1085,18 +1311,28 @@
     return stem.replace(/\(\s{2,}\)/g, '（ ）').replace(/（\s{2,}）/g, '（ ）');
   }
 
-  async function fetchImageAsBase64(url) {
+  async function fetchImageAsset(url) {
     try {
       const resp = await fetch(url, { mode: 'cors' });
       if (!resp.ok) return null;
       const blob = await resp.blob();
       if (!blob.type.startsWith('image/')) return null;
-      return new Promise((resolve) => {
+      const data = await new Promise((resolve) => {
         const reader = new FileReader();
         reader.onloadend = () => resolve(reader.result);
         reader.onerror = () => resolve(null);
         reader.readAsDataURL(blob);
       });
+      if (!data) return null;
+      const size = await new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve({ width: img.naturalWidth || 300, height: img.naturalHeight || 200 });
+        img.onerror = () => resolve({ width: 300, height: 200 });
+        img.src = data;
+      });
+      const typeMap = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/gif': 'gif', 'image/bmp': 'bmp' };
+      const type = typeMap[blob.type] || 'png';
+      return { data, type, width: size.width, height: size.height };
     } catch (e) {
       return null;
     }
@@ -1107,28 +1343,65 @@
             AlignmentType, convertMillimetersToTwip,
             TabStopType, PageBreak } = docx;
 
+    async function buildImageRun(url) {
+      const image = await fetchImageAsset(url);
+      if (!image) {
+        return new TextRun({ text: `[图片: ${url}]`, font: "宋体", size: 20, italics: true, color: "888888" });
+      }
+      const maxW = 520;
+      const maxH = 320;
+      const ratio = Math.min(maxW / image.width, maxH / image.height, 1);
+      return new ImageRun({
+        data: image.data,
+        transformation: {
+          width: Math.max(1, Math.round(image.width * ratio)),
+          height: Math.max(1, Math.round(image.height * ratio))
+        },
+        type: image.type
+      });
+    }
+
+    async function buildRichRuns(content, prefix = '') {
+      const runs = [];
+      if (prefix) runs.push(new TextRun({ text: prefix, font: "宋体", size: 24 }));
+      for (const part of content || []) {
+        if (part.type === 'text') {
+          const normalized = part.text.replace(/\n+/g, ' ');
+          if (normalized) runs.push(new TextRun({ text: normalized, font: "宋体", size: 24 }));
+        } else if (part.type === 'image') {
+          if (runs.length > 0) runs.push(new TextRun({ text: ' ', font: "宋体", size: 24 }));
+          runs.push(await buildImageRun(part.url));
+          runs.push(new TextRun({ text: ' ', font: "宋体", size: 24 }));
+        } else if (part.type === 'break') {
+          runs.push(new TextRun({ text: '\n', break: 1, font: "宋体", size: 24 }));
+        }
+      }
+      return runs.length ? runs : [new TextRun({ text: prefix, font: "宋体", size: 24 })];
+    }
+
+    async function buildRichParagraphs(content, prefix = '', spacingAfter = 40) {
+      return [new Paragraph({
+        children: await buildRichRuns(content, prefix),
+        spacing: { after: spacingAfter }
+      })];
+    }
+
     async function buildImageParagraphs(images) {
       const paragraphs = [];
       if (!images || images.length === 0) return paragraphs;
       for (const url of images) {
-        const base64 = await fetchImageAsBase64(url);
-        if (base64) {
-          paragraphs.push(new Paragraph({
-            children: [new ImageRun({
-              data: base64,
-              transformation: { width: 300, height: 200 },
-              type: 'png'
-            })],
-            spacing: { after: 80 }
-          }));
-        } else {
-          paragraphs.push(new Paragraph({
-            children: [new TextRun({ text: `[图片: ${url}]`, font: "宋体", size: 20, italics: true, color: "888888" })],
-            spacing: { after: 80 }
-          }));
-        }
+        paragraphs.push(new Paragraph({
+          children: [await buildImageRun(url)],
+          spacing: { after: 80 }
+        }));
       }
       return paragraphs;
+    }
+
+    function normalizedQuestionContent(q) {
+      return normalizeRichContent(questionContent(q).map(part => (
+        part.type === 'text' ? { ...part, text: normalizeStem(part.text) } : part
+      )));
     }
 
     const typeHeaders = {
@@ -1163,40 +1436,35 @@
         for (const q of questions) {
           qNum++;
           // 题干（题号 + 题型标签 + 题干内容），括号归一化
-          const stem = normalizeStemForBank(q.stem);
-          children.push(new Paragraph({
-            children: [new TextRun({ text: `${qNum}.${prefix}${stem}`, font: "宋体", size: 24 })],
-            spacing: { after: 40 }
-          }));
-          children.push(...await buildImageParagraphs(q.images));
+          const bankStemContent = normalizeRichContent(questionContent(q).map(part => (
+            part.type === 'text' ? { ...part, text: normalizeStemForBank(part.text) } : part
+          )));
+          children.push(...await buildRichParagraphs(bankStemContent, `${qNum}.${prefix}`, 40));
 
           // 选项
           const options = q.options || [];
           for (const opt of options) {
-            children.push(new Paragraph({
-              children: [new TextRun({ text: `${opt.letter}. ${opt.text}`, font: "宋体", size: 24 })],
-              spacing: { after: 40 }
-            }));
+            children.push(...await buildRichParagraphs(optionContent(opt), `${opt.letter}. `, 40));
           }
 
           // 答案
-          const answer = (q.correctAnswer || '').trim();
-          if (answer) {
-            let formattedAnswer = answer;
-            if (qtype === '多选') {
+          const answerParts = answerContent(q);
+          const answer = richTextOnly(answerParts);
+          if (hasRichContent(answerParts)) {
+            const hasAnswerImage = answerParts.some(part => part.type === 'image');
+            let formattedAnswerParts = answerParts;
+            // 题库导入只对纯文本的客观题答案做格式归一；图文混排答案必须保留原内容，避免公式图片丢失。
+            if (!hasAnswerImage && qtype === '多选') {
               const parts = answer.replace(/\s+/g, '').split('');
-              formattedAnswer = parts.join('，');
-            } else if (qtype === '判断') {
+              formattedAnswerParts = [{ type: 'text', text: parts.join('，') }];
+            } else if (!hasAnswerImage && qtype === '判断') {
               if (/^[√✓Tt]|正确|True|TRUE/.test(answer)) {
-                formattedAnswer = '对';
+                formattedAnswerParts = [{ type: 'text', text: '对' }];
               } else {
-                formattedAnswer = '错';
+                formattedAnswerParts = [{ type: 'text', text: '错' }];
               }
             }
-            children.push(new Paragraph({
-              children: [new TextRun({ text: `答案：${formattedAnswer}`, font: "宋体", size: 24 })],
-              spacing: { after: 120 }
-            }));
+            children.push(...await buildRichParagraphs(formattedAnswerParts, '答案：', 120));
           } else {
             children.push(new Paragraph({
               children: [new TextRun({ text: '', font: "宋体", size: 24 })],
@@ -1252,23 +1520,16 @@
         qNum++;
 
         if (qtype === '单选' || qtype === '多选') {
-          children.push(new Paragraph({
-            children: [new TextRun({ text: `${qNum}. ${normalizeStem(q.stem)}`, font: "宋体", size: 24 })],
-            spacing: { after: 40 }
-          }));
-          children.push(...await buildImageParagraphs(q.images));
+          children.push(...await buildRichParagraphs(normalizedQuestionContent(q), `${qNum}. `, 40));
           const options = q.options || [];
           if (options.length > 0) {
-            // 判断是否需要竖排：任意选项超过 25 字则改为 1 列
+            // 判断是否需要竖排：任意选项超过 25 字或包含图片/换行则改为 1 列
             const maxLen = Math.max(...options.map(o => o.text.length));
-            const useVertical = maxLen > 25;
+            const useVertical = maxLen > 25 || options.some(o => (optionContent(o) || []).some(part => part.type === 'image' || part.type === 'break'));
 
             if (useVertical) {
               for (const opt of options) {
-                children.push(new Paragraph({
-                  children: [new TextRun({ text: `${opt.letter}. ${opt.text}`, font: "宋体", size: 24 })],
-                  spacing: { after: 40 }
-                }));
+                children.push(...await buildRichParagraphs(optionContent(opt), `${opt.letter}. `, 40));
               }
             } else {
               for (let i = 0; i < options.length; i += 2) {
@@ -1286,25 +1547,17 @@
             children.push(new Paragraph({ children: [], spacing: { after: 80 } }));
           }
         } else if (qtype === '填空') {
-          children.push(new Paragraph({
-            children: [new TextRun({ text: `${qNum}. ${normalizeStem(q.stem)}`, font: "宋体", size: 24 })],
-            spacing: { after: 40 }
-          }));
-          children.push(...await buildImageParagraphs(q.images));
+          children.push(...await buildRichParagraphs(normalizedQuestionContent(q), `${qNum}. `, 40));
           children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
         } else if (qtype === '判断') {
+          children.push(...await buildRichParagraphs(normalizedQuestionContent(q), `${qNum}. `, 40));
           children.push(new Paragraph({
-            children: [new TextRun({ text: `${qNum}. ${normalizeStem(q.stem)} ( )`, font: "宋体", size: 24 })],
+            children: [new TextRun({ text: '( )', font: "宋体", size: 24 })],
             spacing: { after: 40 }
           }));
-          children.push(...await buildImageParagraphs(q.images));
           children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
         } else if (qtype === '简答') {
-          children.push(new Paragraph({
-            children: [new TextRun({ text: `${qNum}. ${normalizeStem(q.stem)}`, font: "宋体", size: 24 })],
-            spacing: { after: 40 }
-          }));
-          children.push(...await buildImageParagraphs(q.images));
+          children.push(...await buildRichParagraphs(normalizedQuestionContent(q), `${qNum}. `, 40));
           for (let i = 0; i < 8; i++) {
             children.push(new Paragraph({
               children: [new TextRun({ text: '', font: "宋体", size: 24 })],
@@ -1339,11 +1592,15 @@
         }));
         for (const q of questions) {
           aNum++;
-          const answer = q.correctAnswer || '（未找到答案）';
-          children.push(new Paragraph({
-            children: [new TextRun({ text: `${aNum}. ${answer}`, font: "宋体", size: 24 })],
-            spacing: { after: 60 }
-          }));
+          const content = answerContent(q);
+          if (hasRichContent(content)) {
+            children.push(...await buildRichParagraphs(content, `${aNum}. `, 60));
+          } else {
+            children.push(new Paragraph({
+              children: [new TextRun({ text: `${aNum}. （未找到答案）`, font: "宋体", size: 24 })],
+              spacing: { after: 60 }
+            }));
+          }
         }
       }
     }
@@ -1392,28 +1649,31 @@
           for (const q of questions) {
             globalNum++;
             if (!q.isWrong) continue;
-            children.push(new Paragraph({
-              children: [new TextRun({ text: `${globalNum}. ${normalizeStem(q.stem)}`, font: "宋体", size: 24 })],
-              spacing: { after: 40 }
-            }));
+            children.push(...await buildRichParagraphs(normalizedQuestionContent(q), `${globalNum}. `, 40));
             // 选项
             const options = q.options || [];
             if (options.length > 0) {
               for (const opt of options) {
-                children.push(new Paragraph({
-                  children: [new TextRun({ text: `${opt.letter}. ${opt.text}`, font: "宋体", size: 24 })],
-                  spacing: { after: 40 }
-                }));
+                children.push(...await buildRichParagraphs(optionContent(opt), `${opt.letter}. `, 40));
               }
             }
             children.push(new Paragraph({
               children: [new TextRun({ text: `我的答案: ${q.myAnswer || '无'}`, font: "宋体", size: 24, color: "DC2626" })],
               spacing: { after: 40 }
             }));
-            children.push(new Paragraph({
-              children: [new TextRun({ text: `正确答案: ${q.correctAnswer || '（未找到答案）'}`, font: "宋体", size: 24, color: "16A34A" })],
-              spacing: { after: 120 }
-            }));
+            const content = answerContent(q);
+            if (hasRichContent(content)) {
+              const answerRuns = await buildRichRuns(content, '正确答案: ');
+              children.push(new Paragraph({
+                children: answerRuns,
+                spacing: { after: 120 }
+              }));
+            } else {
+              children.push(new Paragraph({
+                children: [new TextRun({ text: '正确答案: （未找到答案）', font: "宋体", size: 24, color: "16A34A" })],
+                spacing: { after: 120 }
+              }));
+            }
           }
         }
       }

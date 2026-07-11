@@ -1,4 +1,20 @@
-## `v1.9.0` - 最新版本
+## `v1.10.0` - 最新版本
+
+### iframe 内题目提取
+- 移除 `@noframes` 指令，脚本现在也可以在 iframe 内运行
+- 在 iframe 中运行时，自动提取题目并通过 `postMessage` 回传给父窗口，不在 iframe 内创建 UI
+- 父窗口通过 `message` 事件监听接收 iframe 数据，`extract()` 函数自动合并 iframe 结果
+- 延迟重试机制（1.5s / 3s），应对 iframe 内容动态加载场景
+- 同源 iframe 仍通过 `extractFromIframesRecursive` 直接递归查找
+
+### 章节测验/考试页面提取
+- 新增对 `.TiMu.newTiMu` 结构的提取，覆盖 `#ZyBottom > .aiArea` 章节测验与考试页面
+- 新增 `extractFromTiMuRoot` 函数，识别 `.newTestType` 题型标题、`.Zy_TItle .qtContent` 题干、`.Zy_ulTop.qtDetail > li` 选项
+- 支持从 `.newAnswerBx` 中提取「我的答案」「正确答案」及对错状态
+- `stripQuestionPrefix` 支持剥离 `【单选题】` 等方头括号题型标签
+
+
+## `v1.9.0`
 
 ### 富文本提取（图文混排）
 - 新增完整的富文本提取基础设施，按 DOM 顺序提取题目内容，保留文字、图片和换行的原始顺序

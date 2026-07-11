@@ -1,19 +1,29 @@
 // ==UserScript==
 // @name         学习通作业提取器
 // @license      GPL-3.0
-// @version      1.9.0
-// @description  一键提取学习通作业题目，支持富文本（图文混排），Word/TXT/MD 导出，答案/错题收集，题库导入格式，暗色模式，快捷键
+// @version      1.10.0
+// @description  一键提取学习通作业题目，支持富文本（图文混排），Word/TXT/MD 导出，答案/错题收集，题库导入格式，暗色模式，快捷键，iframe 提取
 // @author       huilin
 // @icon         http://pan-yz.chaoxing.com/favicon.ico
 // @match        *://*.chaoxing.com/*
 // @match        *://*.edu.cn/*
-// @noframes
 // @require      https://unpkg.com/docx@8.5.0/build/index.umd.js
 // @grant        none
 // ==/UserScript==
 
 (function () {
   'use strict';
+
+  // ==================== iframe 跨窗口通信 ====================
+  // 存储从 iframe 通过 postMessage 发来的题目数据
+  window.__xxt_iframe_data = null;
+
+  // 监听来自 iframe 的题目提取结果（跨域 iframe 通过 postMessage 回传）
+  window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'xxt-iframe-result' && e.data.data) {
+      window.__xxt_iframe_data = e.data.data;
+    }
+  });
 
   // ==================== 样式注入 ====================
   const css = `
@@ -817,8 +827,8 @@
       }
       if (!strippedType) {
         const before = part.text;
-        // 只剥离已知题型标签，避免误伤选项字母
-        part.text = part.text.replace(/^\s*（(单选题|多选题|填空题|判断题|简答题|论述题|问答题|选择题)）\s*/, '');
+        // 剥离已知题型标签（支持圆括号、方头括号、半角括号），避免误伤选项字母
+        part.text = part.text.replace(/^\s*[（【(](单选题|多选题|填空题|判断题|简答题|论述题|问答题|选择题)[）】)]\s*/, '');
         if (part.text !== before || part.text.trim()) strippedType = true;
       }
     }
@@ -856,25 +866,9 @@
       }
     });
     if (contents.length > 0) return normalizeRichContent(contents);
-    if (!markAnswer) return [];
-
-    const contents = [];
-    markAnswer.querySelectorAll('.rightAnswerContent').forEach(el => {
-      const content = stripAnswerLabel(extractRichContent(el));
-      if (hasRichContent(content)) {
-        if (contents.length > 0) contents.push({ type: 'text', text: '；' });
-        contents.push(...content);
-      }
-    });
-    if (contents.length > 0) return normalizeRichContent(contents);
 
     const markKey = markAnswer.querySelector('.mark_key');
     if (markKey) {
-      const rightEl = markKey.querySelector('.colorGreen');
-      if (rightEl) {
-        const content = stripAnswerLabel(extractRichContent(rightEl));
-        if (hasRichContent(content)) return content;
-      }
       const rightEl = markKey.querySelector('.colorGreen');
       if (rightEl) {
         const content = stripAnswerLabel(extractRichContent(rightEl));
@@ -1029,7 +1023,12 @@
     const topResult = extractFromRoot(document);
     if (hasQuestions(topResult)) return topResult;
 
-    // 学生学习页面：题目在多层嵌套 iframe 中，递归查找
+    // 检查 iframe 通过 postMessage 发来的数据（跨域 iframe 回传）
+    if (window.__xxt_iframe_data && hasQuestions(window.__xxt_iframe_data)) {
+      return window.__xxt_iframe_data;
+    }
+
+    // 学生学习页面：题目在多层嵌套 iframe 中，递归查找（同源 iframe）
     const iframeResult = extractFromIframesRecursive(document);
     if (iframeResult) return iframeResult;
 
@@ -1042,8 +1041,115 @@
     return Object.values(result.results).some(arr => arr.length > 0);
   }
 
-  // 从指定文档/根节点提取题目（支持 .mark_item 和 .questionLi 两种结构，富文本版本）
+  // 从章节测验/考试页面（.TiMu.newTiMu 结构）提取题目
+  function extractFromTiMuRoot(root) {
+    const bottom = root.querySelector('#ZyBottom');
+    if (!bottom) return null;
+    const areas = bottom.querySelectorAll('.aiArea');
+    if (areas.length === 0) return null;
+
+    const results = { '单选': [], '多选': [], '填空': [], '判断': [], '简答': [] };
+    const typeOrder = [];
+    let wrongCount = 0;
+    let hasAnyMyAnswer = false;
+    let hasCorrectAnswer = false;
+    let currentType = null;
+
+    // 提取章节测验页面中我的答案
+    function extractMyAnswerTiMu(qDiv) {
+      const myAnswerBx = qDiv.querySelector('.newAnswerBx .myAnswerBx');
+      if (!myAnswerBx) return '';
+      const con = myAnswerBx.querySelector('.myAnswer .answerCon');
+      return con ? con.textContent.trim() : '';
+    }
+
+    // 提取章节测验页面中正确答案的富文本内容
+    function extractCorrectAnswerContentTiMu(qDiv) {
+      const correctBx = qDiv.querySelector('.newAnswerBx .correctAnswerBx');
+      if (!correctBx) return [];
+      const con = correctBx.querySelector('.correctAnswer .answerCon');
+      if (!con) return [];
+      const content = stripAnswerLabel(extractRichContent(con));
+      return hasRichContent(content) ? content : [];
+    }
+
+    // 判断章节测验页面中是否答错
+    function isAnswerWrongTiMu(qDiv, myAnswer, correctAnswer, qtype) {
+      if (qtype === '简答') return false;
+      if (!myAnswer) return false;
+      // 有对勾图标则正确，有叉图标则错误
+      if (qDiv.querySelector('.marking_dui')) return false;
+      if (qDiv.querySelector('.marking_cuo')) return true;
+      if (!correctAnswer) return false;
+      return myAnswer.trim() !== correctAnswer.trim();
+    }
+
+    areas.forEach(area => {
+      // 题型标题通常在 aiArea 之前，同一层级检测
+      const typeTit = area.querySelector('.newTestType');
+      if (typeTit) {
+        currentType = detectTypeFromText(typeTit.textContent || '');
+        if (currentType && !typeOrder.includes(currentType)) typeOrder.push(currentType);
+      }
+
+      const qDiv = area.querySelector('.TiMu.newTiMu');
+      if (!qDiv) return;
+
+      const titleDiv = qDiv.querySelector('.Zy_TItle');
+      if (!titleDiv) return;
+
+      const numEl = titleDiv.querySelector('i.fl');
+      const qnum = numEl ? parseInt(numEl.textContent.trim(), 10) || 0 : 0;
+
+      const qtContent = titleDiv.querySelector('.qtContent');
+      if (!qtContent) return;
+      const stemContent = stripQuestionPrefix(extractRichContent(qtContent));
+      if (!hasRichContent(stemContent)) return;
+      const stem = formatRichForText(stemContent);
+
+      // 题型识别：优先使用最近遇到的题型标题，其次从题干标签识别
+      let sectionType = currentType;
+      if (!sectionType) {
+        const typeLabel = qtContent.querySelector('.newZy_TItle');
+        sectionType = detectTypeFromText(typeLabel ? typeLabel.textContent : '');
+      }
+      if (!sectionType) return;
+      if (!typeOrder.includes(sectionType)) typeOrder.push(sectionType);
+
+      // 选项（单选/多选），判断题通常无选项
+      const options = [];
+      qDiv.querySelectorAll('.Zy_ulTop.qtDetail > li').forEach((li, i) => {
+        const opt = extractOptionFromLegacyLi(li, i);
+        if (opt) options.push(opt);
+      });
+
+      const myAnswer = extractMyAnswerTiMu(qDiv);
+      if (myAnswer) hasAnyMyAnswer = true;
+
+      const correctAnswerContent = extractCorrectAnswerContentTiMu(qDiv);
+      const correctAnswer = richContentToText(correctAnswerContent, () => '').replace(/\s+/g, ' ').trim();
+      if (correctAnswer) hasCorrectAnswer = true;
+
+      const wrong = isAnswerWrongTiMu(qDiv, myAnswer, correctAnswer, sectionType);
+      if (wrong) wrongCount++;
+
+      results[sectionType].push({
+        qnum, stem, stemContent, options,
+        correctAnswer, correctAnswerContent,
+        myAnswer, isWrong: wrong
+      });
+    });
+
+    if (!hasQuestions({ results })) return null;
+    return { results, typeOrder, wrongCount, hasMyAnswer: hasAnyMyAnswer, hasCorrectAnswer };
+  }
+
+  // 从指定文档/根节点提取题目（支持 .mark_item、.questionLi、.TiMu.newTiMu 三种结构，富文本版本）
   function extractFromRoot(root) {
+    // 优先章节测验/考试页面结构
+    const tiMuResult = extractFromTiMuRoot(root);
+    if (tiMuResult) return tiMuResult;
+
     const results = { '单选': [], '多选': [], '填空': [], '判断': [], '简答': [] };
     const typeOrder = [];
 
@@ -1422,6 +1528,21 @@
     return runs.length ? runs : [new TextRun({ text: prefix, font: "宋体", size: 24 })];
   }
 
+  // 将富文本内容构建为带段后间距的 Paragraph 数组（Word 导出用）
+  async function buildRichParagraphs(content, prefix = '', spacing = 0) {
+    const { Paragraph } = docx;
+    const runs = await buildRichRuns(content, prefix);
+    return [new Paragraph({
+      children: runs,
+      spacing: { after: spacing }
+    })];
+  }
+
+  // 获取题目的规范化富文本题干（Word 导出判断题等场景使用）
+  function normalizedQuestionContent(q) {
+    return questionContent(q);
+  }
+
   async function generateWordBlob(results, typeOrder, title, withAnswers, withWrong, bankImport) {
     const { Document, Packer, Paragraph, TextRun, ImageRun,
             AlignmentType, convertMillimetersToTwip,
@@ -1605,13 +1726,11 @@
           }));
           children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
         } else if (qtype === '判断') {
-          children.push(...await buildRichParagraphs(normalizedQuestionContent(q), `${qNum}. `, 40));
+          // 输出题干，题干末尾追加判断括号，避免重复输出
+          const judgeRuns = await buildRichRuns(stemContent, `${qNum}. `);
+          judgeRuns.push(new TextRun({ text: '（  ）', font: "宋体", size: 24 }));
           children.push(new Paragraph({
-            children: await buildRichRuns(stemContent, `${qNum}. `),
-            spacing: { after: 40 }
-          }));
-          children.push(new Paragraph({
-            children: [new TextRun({ text: '( )', font: "宋体", size: 24 })],
+            children: judgeRuns,
             spacing: { after: 120 }
           }));
         } else if (qtype === '简答') {
@@ -1652,8 +1771,8 @@
         }));
         for (const q of questions) {
           aNum++;
-          const answerContent = answerContent(q);
-          const answerRuns = await buildRichRuns(answerContent);
+          const answerRich = answerContent(q);
+          const answerRuns = await buildRichRuns(answerRich);
           if (answerRuns.length === 0) {
             answerRuns.push(new TextRun({ text: '（未找到答案）', font: "宋体", size: 24 }));
           }
@@ -2417,19 +2536,66 @@
   }
 
   // ==================== 初始化 ====================
+  // 检测是否在 iframe 中运行
+  let isInIframe = false;
+  try { isInIframe = window.top !== window.self; } catch(e) { isInIframe = true; }
+
   let initTimer = null;
   let observer = null;
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', createPanel);
-  } else {
-    createPanel();
-  }
+  if (isInIframe) {
+    // 在 iframe 中：提取题目并通过 postMessage 回传给父窗口，不创建 UI
+    let iframeSent = false;
+    function iframeExtract() {
+      if (iframeSent) return;
+      const result = extractFromRoot(document);
+      if (!hasQuestions(result)) return;
+      iframeSent = true;
+      // 获取标题（兼容作业详情页与章节测验页）
+      const titleEl = document.querySelector('.mark_title, .newTestTitle, .TestTitle_name');
+      const title = titleEl ? titleEl.textContent.trim() : '';
+      // 通过 postMessage 回传给父窗口
+      window.parent.postMessage({
+        type: 'xxt-iframe-result',
+        data: { ...result, title }
+      }, '*');
+    }
 
-  observer = new MutationObserver(() => {
-    if (initTimer) clearTimeout(initTimer);
-    initTimer = setTimeout(createPanel, 500);
-  });
-  observer.observe(document.body, { childList: true, subtree: true });
+    // 监听题目容器，动态加载完成后自动重新提取
+    function observeForQuestions() {
+      const target = document.querySelector('#ZyBottom') || document.body;
+      if (!target) return;
+      let mo = new MutationObserver(() => {
+        iframeExtract();
+      });
+      mo.observe(target, { childList: true, subtree: true });
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => {
+        iframeExtract();
+        observeForQuestions();
+      });
+    } else {
+      iframeExtract();
+      observeForQuestions();
+    }
+    // 延迟重试，应对 iframe 内容动态加载
+    setTimeout(iframeExtract, 1500);
+    setTimeout(iframeExtract, 3000);
+  } else {
+    // 在顶层窗口中：正常创建 UI 并监听 iframe 回传数据
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', createPanel);
+    } else {
+      createPanel();
+    }
+
+    observer = new MutationObserver(() => {
+      if (initTimer) clearTimeout(initTimer);
+      initTimer = setTimeout(createPanel, 500);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
 
 })();

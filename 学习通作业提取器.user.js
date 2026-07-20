@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         学习通作业提取器
+// @name         超星学习通作业/考试一键提取导出word文档
 // @license      GPL-3.0
-// @version      1.10.0
+// @version      1.10.2
 // @description  一键提取学习通作业题目，支持富文本（图文混排），Word/TXT/MD 导出，答案/错题收集，题库导入格式，暗色模式，快捷键，iframe 提取
 // @author       huilin
 // @icon         http://pan-yz.chaoxing.com/favicon.ico
@@ -17,11 +17,15 @@
   // ==================== iframe 跨窗口通信 ====================
   // 存储从 iframe 通过 postMessage 发来的题目数据
   window.__xxt_iframe_data = null;
+  // 父窗口自动提取回调（由 createPanel 设置）
+  window.__xxt_auto_extract = null;
 
   // 监听来自 iframe 的题目提取结果（跨域 iframe 通过 postMessage 回传）
   window.addEventListener('message', function(e) {
     if (e.data && e.data.type === 'xxt-iframe-result' && e.data.data) {
       window.__xxt_iframe_data = e.data.data;
+      // 章节切换时自动触发提取
+      if (window.__xxt_auto_extract) window.__xxt_auto_extract();
     }
   });
 
@@ -1023,9 +1027,11 @@
     const topResult = extractFromRoot(document);
     if (hasQuestions(topResult)) return topResult;
 
-    // 检查 iframe 通过 postMessage 发来的数据（跨域 iframe 回传）
-    if (window.__xxt_iframe_data && hasQuestions(window.__xxt_iframe_data)) {
-      return window.__xxt_iframe_data;
+    // 检查 iframe 通过 postMessage 发来的最新数据（跨域 iframe 回传）
+    const iframeData = window.__xxt_iframe_data;
+    window.__xxt_iframe_data = null; // 每次提取后清空，确保下次拿到最新数据
+    if (iframeData && hasQuestions(iframeData)) {
+      return iframeData;
     }
 
     // 学生学习页面：题目在多层嵌套 iframe 中，递归查找（同源 iframe）
@@ -2464,6 +2470,12 @@
       }
       showStatus(els, '已复制到剪贴板', 'ok');
     });
+
+    // 设置自动提取回调：iframe 发来新数据时自动触发提取
+    window.__xxt_auto_extract = function() {
+      const btn = document.getElementById('xxt-btnExtract');
+      if (btn && !btn.disabled) btn.click();
+    };
     _creatingPanel = false;
   }
 
@@ -2545,30 +2557,28 @@
 
   if (isInIframe) {
     // 在 iframe 中：提取题目并通过 postMessage 回传给父窗口，不创建 UI
-    let iframeSent = false;
+    let iframeDebounceTimer = null;
     function iframeExtract() {
-      if (iframeSent) return;
       const result = extractFromRoot(document);
       if (!hasQuestions(result)) return;
-      iframeSent = true;
       // 获取标题（兼容作业详情页与章节测验页）
       const titleEl = document.querySelector('.mark_title, .newTestTitle, .TestTitle_name');
       const title = titleEl ? titleEl.textContent.trim() : '';
-      // 通过 postMessage 回传给父窗口
+      // 直接发送最新数据，父窗口以最后收到的为准
       window.parent.postMessage({
         type: 'xxt-iframe-result',
         data: { ...result, title }
       }, '*');
     }
 
-    // 监听题目容器，动态加载完成后自动重新提取
+    // 监听 DOM 变化，章节切换时自动重新提取并回传
+    // 始终挂载在 document.body 上，避免 #ZyBottom 被替换后 observer 失效
     function observeForQuestions() {
-      const target = document.querySelector('#ZyBottom') || document.body;
-      if (!target) return;
-      let mo = new MutationObserver(() => {
-        iframeExtract();
+      const mo = new MutationObserver(() => {
+        if (iframeDebounceTimer) clearTimeout(iframeDebounceTimer);
+        iframeDebounceTimer = setTimeout(iframeExtract, 300);
       });
-      mo.observe(target, { childList: true, subtree: true });
+      mo.observe(document.body, { childList: true, subtree: true });
     }
 
     if (document.readyState === 'loading') {
@@ -2583,6 +2593,8 @@
     // 延迟重试，应对 iframe 内容动态加载
     setTimeout(iframeExtract, 1500);
     setTimeout(iframeExtract, 3000);
+    // 定时轮询兜底，应对 SPA 切换章节时 MutationObserver 遗漏
+    setInterval(iframeExtract, 5000);
   } else {
     // 在顶层窗口中：正常创建 UI 并监听 iframe 回传数据
     if (document.readyState === 'loading') {

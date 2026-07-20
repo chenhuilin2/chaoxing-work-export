@@ -13,18 +13,19 @@
 ### 使用
 
 1. 进入待提取的学习通作业页面，点击页面右侧 **「提取题目」** 浮动按钮，展开面板
-3. 点击 **「提取本页题目」**
-4. 选择输出格式（默认 Word 试卷）：
-   - **Word 试卷** — 直接导出 .docx 试卷，排版规范，支持乱序输出和附加答案
+2. 点击 **「提取本页题目」**
+3. 选择输出格式：
+   - **Word 试卷** — .docx 试卷
    - **TXT** — 纯文本
    - **MD** — Markdown 格式
-5. 按需勾选选项（附加答案、附加错题、打乱顺序）
-6. 点击 **「下载」** 或 **「复制文本」**
-
+4. 按需勾选选项（附加答案、附加错题、打乱顺序）
+5. 点击 **「下载」** 或 **「复制文本」**
 
 ### 欢迎提出问题、需求
 
 如有问题以及需求，欢迎在 issue 页面中提出，我会及时修复更新。
 
 谢谢以下开源贡献者～
-<a href=" ">  < img src="https://contrib.rocks/image?repo=chenhuilin2/chaoxing-work-parser" /></a >
+<a href=" ">  
+ <img src="https://contrib.rocks/image?repo=chenhuilin2/chaoxing-work-parser" />
+</a >

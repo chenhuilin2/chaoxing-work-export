@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         超星学习通作业/考试一键提取导出word文档
 // @license      GPL-3.0
-// @version      1.10.2
+// @version      1.11.1
 // @description  一键提取学习通作业题目，支持富文本（图文混排），Word/TXT/MD 导出，答案/错题收集，题库导入格式，暗色模式，快捷键，iframe 提取
 // @author       huilin
 // @icon         http://pan-yz.chaoxing.com/favicon.ico
@@ -68,6 +68,7 @@
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 14px; padding-bottom: 12px;
   border-bottom: 1px solid #eee;
+  cursor: move; user-select: none;
 }
 #xxt-panel .xxt-header h3 {
   font-size: 15px; font-weight: 700; color: #222;
@@ -82,7 +83,7 @@
 #xxt-panel .xxt-close-btn:hover { background: #e0e0e0; color: #555; }
 
 /* ===== 提取按钮 ===== */
-#xxt-panel .xxt-btn-extract {
+#xxt-panel .xxt-btn-extract, #xxt-chapter-modal .xxt-btn-extract {
   display: block; width: 100%; padding: 11px; border: none;
   border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
   margin-bottom: 10px; transition: all 0.2s ease;
@@ -90,10 +91,20 @@
   box-shadow: 0 2px 6px rgba(30,136,229,0.2);
   letter-spacing: 1px;
 }
-#xxt-panel .xxt-btn-extract:hover { background: #1565c0; box-shadow: 0 3px 10px rgba(30,136,229,0.28); }
-#xxt-panel .xxt-btn-extract:active { transform: scale(0.985); }
-#xxt-panel .xxt-btn-extract:disabled {
+#xxt-panel .xxt-btn-extract:hover, #xxt-chapter-modal .xxt-btn-extract:hover { background: #1565c0; box-shadow: 0 3px 10px rgba(30,136,229,0.28); }
+#xxt-panel .xxt-btn-extract:active, #xxt-chapter-modal .xxt-btn-extract:active { transform: scale(0.985); }
+#xxt-panel .xxt-btn-extract:disabled, #xxt-chapter-modal .xxt-btn-extract:disabled {
   background: #ccc; box-shadow: none; cursor: not-allowed; transform: none;
+}
+#xxt-panel .xxt-btn-extract-all {
+  display: block; width: 100%; padding: 10px; border: 2px dashed #1e88e5;
+  border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+  margin-bottom: 10px; transition: all 0.2s ease;
+  background: transparent; color: #1e88e5;
+}
+#xxt-panel .xxt-btn-extract-all:hover { background: #e3f2fd; }
+#xxt-panel .xxt-btn-extract-all:disabled {
+  border-color: #ccc; color: #ccc; background: transparent; cursor: not-allowed;
 }
 
 /* ===== 状态提示 ===== */
@@ -307,6 +318,59 @@
   color: #999; font-size: 11px;
 }
 
+/* ===== 章节选择弹窗 ===== */
+#xxt-chapter-modal {
+  position: fixed; inset: 0; z-index: 100000;
+  background: rgba(0,0,0,0.35);
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+#xxt-chapter-modal.open {
+  opacity: 1; pointer-events: auto;
+}
+#xxt-chapter-modal .xxt-modal-box {
+  background: #fff; border-radius: 14px; width: 380px; max-width: 90vw;
+  padding: 24px; box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+  transform: translateY(12px); transition: transform 0.25s ease;
+  display: flex; flex-direction: column; max-height: 70vh;
+}
+#xxt-chapter-modal.open .xxt-modal-box {
+  transform: translateY(0);
+}
+#xxt-chapter-modal .xxt-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 14px; padding-bottom: 12px;
+  border-bottom: 1px solid #eee;
+}
+#xxt-chapter-modal .xxt-modal-header h3 {
+  font-size: 15px; font-weight: 700; color: #222; margin: 0;
+}
+#xxt-chapter-modal .xxt-modal-close {
+  width: 24px; height: 24px; border: none; background: #f0f0f0;
+  border-radius: 50%; font-size: 15px; color: #999; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s ease;
+}
+#xxt-chapter-modal .xxt-modal-close:hover { background: #e0e0e0; color: #555; }
+#xxt-chapter-modal .xxt-chapter-list {
+  flex: 1; overflow-y: auto; max-height: 300px;
+}
+#xxt-chapter-modal .xxt-chapter-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; cursor: pointer;
+  border-radius: 8px; transition: background 0.15s;
+  font-size: 13px;
+}
+#xxt-chapter-modal .xxt-chapter-item:hover { background: #f0f2f5; }
+#xxt-chapter-modal .xxt-chapter-item input[type="checkbox"] {
+  width: 16px; height: 16px; cursor: pointer; accent-color: #1e88e5; flex-shrink: 0;
+}
+#xxt-chapter-modal .xxt-chapter-actions {
+  display: flex; gap: 8px; margin-top: 12px; padding-top: 12px;
+  border-top: 1px solid #eee;
+}
+
 /* ===== 历史记录弹窗 ===== */
 #xxt-history-modal {
   position: fixed; inset: 0; z-index: 100001;
@@ -371,6 +435,13 @@
   transition: all 0.2s ease; flex-shrink: 0; margin-left: 8px;
 }
 #xxt-history-modal .xxt-history-delete:hover { background: #fee2e2; color: #ef4444; }
+#xxt-history-modal .xxt-history-download {
+  width: 26px; height: 26px; border: none; background: transparent;
+  border-radius: 50%; cursor: pointer; color: #ccc; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s ease; flex-shrink: 0; margin-left: 4px;
+}
+#xxt-history-modal .xxt-history-download:hover { background: #e3f2fd; color: #1e88e5; }
 
 /* ===== 响应式微调 ===== */
 @media screen and (max-height: 700px) {
@@ -407,15 +478,23 @@
   background: #313244; color: #a6adc8;
 }
 [data-xxt-theme="dark"] #xxt-panel .xxt-close-btn:hover { background: #45475a; color: #cdd6f4; }
-[data-xxt-theme="dark"] #xxt-panel .xxt-btn-extract {
+[data-xxt-theme="dark"] #xxt-panel .xxt-btn-extract,
+[data-xxt-theme="dark"] #xxt-chapter-modal .xxt-btn-extract {
   background: #3b82f6; color: #fff;
   box-shadow: 0 2px 6px rgba(59,130,246,0.25);
 }
-[data-xxt-theme="dark"] #xxt-panel .xxt-btn-extract:hover {
+[data-xxt-theme="dark"] #xxt-panel .xxt-btn-extract:hover,
+[data-xxt-theme="dark"] #xxt-chapter-modal .xxt-btn-extract:hover {
   background: #2563eb;
   box-shadow: 0 3px 10px rgba(59,130,246,0.35);
 }
-[data-xxt-theme="dark"] #xxt-panel .xxt-btn-extract:disabled { background: #45475a; }
+[data-xxt-theme="dark"] #xxt-panel .xxt-btn-extract:disabled,
+[data-xxt-theme="dark"] #xxt-chapter-modal .xxt-btn-extract:disabled { background: #45475a; }
+[data-xxt-theme="dark"] #xxt-panel .xxt-btn-extract-all {
+  border-color: #3b82f6; color: #3b82f6;
+}
+[data-xxt-theme="dark"] #xxt-panel .xxt-btn-extract-all:hover { background: #1e293b; }
+[data-xxt-theme="dark"] #xxt-panel .xxt-btn-extract-all:disabled { border-color: #45475a; color: #45475a; }
 [data-xxt-theme="dark"] .xxt-status-ok { color: #4ade80; background: #052e16; border-color: #166534; }
 [data-xxt-theme="dark"] .xxt-status-err { color: #f87171; background: #450a0a; border-color: #991b1b; }
 [data-xxt-theme="dark"] .xxt-status-warn { color: #fbbf24; background: #451a03; border-color: #92400e; }
@@ -512,6 +591,9 @@
 [data-xxt-theme="dark"] #xxt-history-modal .xxt-history-meta { color: #a6adc8; }
 [data-xxt-theme="dark"] #xxt-history-modal .xxt-history-delete { color: #585b70; }
 [data-xxt-theme="dark"] #xxt-history-modal .xxt-history-delete:hover { background: #450a0a; color: #f87171; }
+[data-xxt-theme="dark"] #xxt-history-modal .xxt-history-download { color: #585b70; }
+[data-xxt-theme="dark"] #xxt-history-modal .xxt-history-download:hover { background: #0d2137; color: #60a5fa; }
+[data-xxt-theme="dark"] #xxt-chapter-modal .xxt-chapter-item:hover { background: #313244; }
   `;
   const darkStyle = document.createElement('style');
   darkStyle.textContent = darkCSS;
@@ -526,7 +608,16 @@
     },
     hideShortcut: {
       ctrl: true, shift: true, alt: false, key: 'h'
-    }
+    },
+    exportConfig: {          // 上一次的导出设置
+      format: 'word',        // 'word' | 'txt' | 'md'
+      withAnswers: false,
+      shuffle: false,
+      bankImport: false
+    },
+    enableDrag: false,         // 面板拖拽，默认关闭
+    rememberPanelPosition: true, // 记住面板位置，默认开启
+    panelPosition: null         // 记住的面板位置 { left, top }
   };
 
   function loadSettings() {
@@ -537,14 +628,22 @@
         return {
           theme: saved.theme || DEFAULT_SETTINGS.theme,
           shortcut: { ...DEFAULT_SETTINGS.shortcut, ...(saved.shortcut || {}) },
-          hideShortcut: { ...DEFAULT_SETTINGS.hideShortcut, ...(saved.hideShortcut || {}) }
+          hideShortcut: { ...DEFAULT_SETTINGS.hideShortcut, ...(saved.hideShortcut || {}) },
+          exportConfig: { ...DEFAULT_SETTINGS.exportConfig, ...(saved.exportConfig || {}) },
+          enableDrag: saved.enableDrag !== undefined ? saved.enableDrag : DEFAULT_SETTINGS.enableDrag,
+          rememberPanelPosition: saved.rememberPanelPosition !== undefined ? saved.rememberPanelPosition : DEFAULT_SETTINGS.rememberPanelPosition,
+          panelPosition: saved.panelPosition || null
         };
       }
     } catch (e) { /* ignore */ }
     return {
       ...DEFAULT_SETTINGS,
       shortcut: { ...DEFAULT_SETTINGS.shortcut },
-      hideShortcut: { ...DEFAULT_SETTINGS.hideShortcut }
+      hideShortcut: { ...DEFAULT_SETTINGS.hideShortcut },
+      exportConfig: { ...DEFAULT_SETTINGS.exportConfig },
+      enableDrag: DEFAULT_SETTINGS.enableDrag,
+      rememberPanelPosition: DEFAULT_SETTINGS.rememberPanelPosition,
+      panelPosition: null
     };
   }
 
@@ -552,6 +651,17 @@
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     } catch (e) { /* ignore */ }
+  }
+
+  // 保存导出配置（格式、附加答案、打乱、题库导入）
+  function saveExportConfig(els) {
+    currentSettings.exportConfig = {
+      format: getFormat(els),
+      withAnswers: els.chkAnswers ? els.chkAnswers.checked : false,
+      shuffle: els.chkShuffle ? els.chkShuffle.checked : false,
+      bankImport: els.chkBankImport ? els.chkBankImport.checked : false
+    };
+    saveSettings(currentSettings);
   }
 
   let currentSettings = loadSettings();
@@ -1511,6 +1621,8 @@
         type: 'png'
       });
     }
+    // 图片加载失败，记录计数
+    window.__xxt_failed_image_count = (window.__xxt_failed_image_count || 0) + 1;
     return null;
   }
 
@@ -1897,15 +2009,15 @@
 
     const btn = document.createElement('button');
     btn.id = 'xxt-panel-btn';
-    btn.textContent = '提取题目';
-    btn.title = '学习通题目提取器';
+    btn.textContent = '下载题目';
+    btn.title = '学习通题目一键提取导出';
     document.body.appendChild(btn);
 
     const panel = document.createElement('div');
     panel.id = 'xxt-panel';
     panel.innerHTML = `
       <div class="xxt-header">
-        <h3>学习通题目提取器</h3>
+        <h3>学习通题目一键提取导出</h3>
         <div style="display:flex;align-items:center;gap:4px;">
           <button class="xxt-settings-btn" id="xxt-historyBtn" title="历史记录">
             <svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
@@ -1917,6 +2029,7 @@
         </div>
       </div>
       <button id="xxt-btnExtract" class="xxt-btn xxt-btn-extract">提取本页题目</button>
+      <button id="xxt-btnExtractAll" class="xxt-btn xxt-btn-extract-all" style="display:none;">提取多个章节</button>
       <div id="xxt-status" class="xxt-hidden"></div>
       <div id="xxt-result" class="xxt-hidden">
         <div id="xxt-stat" class="xxt-stat"></div>
@@ -1942,7 +2055,12 @@
         <label class="xxt-toggle" id="xxt-shuffle-toggle">
           <input type="checkbox" id="xxt-chkShuffle">
           <div class="xxt-checkbox-wrap"></div>
-          <span>打乱题目顺序</span>
+          <span>题目乱序</span>
+        </label>
+        <label class="xxt-toggle xxt-hidden" id="xxt-split-toggle">
+          <input type="checkbox" id="xxt-chkSplit">
+          <div class="xxt-checkbox-wrap"></div>
+          <span>分章节下载（每章单独一个文件）</span>
         </label>
         <label class="xxt-toggle" id="xxt-bank-import-toggle">
           <input type="checkbox" id="xxt-chkBankImport">
@@ -1973,17 +2091,115 @@
       wrongToggle: $('xxt-wrong-toggle'),
       wrongHint: $('xxt-wrong-hint'),
       chkShuffle: $('xxt-chkShuffle'),
+      chkSplit: $('xxt-chkSplit'),
+      splitToggle: $('xxt-split-toggle'),
       chkBankImport: $('xxt-chkBankImport'),
       bankImportToggle: $('xxt-bank-import-toggle'),
       closeBtn: $('xxt-closeBtn'),
+      btnExtractAll: $('xxt-btnExtractAll'),
     };
 
-    btn.addEventListener('click', () => { panel.classList.toggle('open'); });
-    els.closeBtn.addEventListener('click', () => { panel.classList.remove('open'); });
-    // 点击面板外部关闭面板，但不影响设置弹窗和历史记录弹窗内的操作
+    // 恢复上次的导出配置
+    const cfg = currentSettings.exportConfig;
+    if (cfg) {
+      const fmtRadio = document.querySelector(`input[name="xxt-fmt"][value="${cfg.format}"]`);
+      if (fmtRadio) fmtRadio.checked = true;
+      if (els.chkAnswers) { els.chkAnswers.checked = cfg.withAnswers; }
+      if (els.chkShuffle) { els.chkShuffle.checked = cfg.shuffle; }
+      if (els.chkBankImport) { els.chkBankImport.checked = cfg.bankImport; }
+      // 题库导入格式选项仅在 Word 格式下显示
+      if (els.bankImportToggle) els.bankImportToggle.style.display = cfg.format === 'word' ? '' : 'none';
+    }
+
+    btn.addEventListener('click', () => {
+      if (panel.classList.contains('open')) {
+        // 关闭面板时清除拖拽产生的内联定位样式，让 CSS 重新接管
+        panel.style.left = '';
+        panel.style.top = '';
+        panel.style.right = '';
+      } else {
+        // 打开面板时恢复记忆的位置
+        if (currentSettings.rememberPanelPosition && currentSettings.panelPosition) {
+          const pos = currentSettings.panelPosition;
+          panel.style.right = 'auto';
+          panel.style.left = pos.left + 'px';
+          panel.style.top = pos.top + 'px';
+        }
+      }
+      panel.classList.toggle('open');
+    });
+    els.closeBtn.addEventListener('click', () => {
+      // 关闭面板时清除拖拽产生的内联定位样式
+      panel.style.left = '';
+      panel.style.top = '';
+      panel.style.right = '';
+      panel.classList.remove('open');
+    });
+
+    // 面板拖拽功能（需在设置中开启）
+    if (currentSettings.enableDrag) {
+      const header = panel.querySelector('.xxt-header');
+      let dragInfo = null; // { startX, startY, panelLeft, panelTop, moved }
+    header.addEventListener('mousedown', (e) => {
+      if (e.target.closest('button')) return;
+      dragInfo = {
+        startX: e.clientX, startY: e.clientY,
+        panelLeft: panel.getBoundingClientRect().left,
+        panelTop: panel.getBoundingClientRect().top,
+        moved: false
+      };
+      panel.style.right = 'auto';
+      panel.style.left = dragInfo.panelLeft + 'px';
+      panel.style.top = dragInfo.panelTop + 'px';
+      panel.style.transition = 'none';
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!dragInfo) return;
+      const dx = e.clientX - dragInfo.startX;
+      const dy = e.clientY - dragInfo.startY;
+      if (!dragInfo.moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+      dragInfo.moved = true;
+      panel.style.left = Math.max(0, dragInfo.panelLeft + dx) + 'px';
+      panel.style.top = Math.max(0, dragInfo.panelTop + dy) + 'px';
+    });
+    document.addEventListener('mouseup', () => {
+      if (!dragInfo) return;
+      const wasDragged = dragInfo.moved;
+      dragInfo = null;
+      panel.style.transition = '';
+      // 拖拽后阻止后续 click 误关闭面板（仅拦截面板外部点击）
+      if (wasDragged) {
+        // 记忆面板位置（需在设置中开启）
+        if (currentSettings.rememberPanelPosition) {
+          currentSettings.panelPosition = {
+            left: parseFloat(panel.style.left),
+            top: parseFloat(panel.style.top)
+          };
+          saveSettings(currentSettings);
+        }
+        const stopClick = (e) => {
+          if (!panel.contains(e.target) && e.target !== btn) {
+            e.stopPropagation();
+          }
+          document.removeEventListener('click', stopClick, true);
+        };
+        document.addEventListener('click', stopClick, true);
+      }
+    });
+    } // if (currentSettings.enableDrag)
+
+    // 点击面板外部关闭面板，但不影响各弹窗内的操作
+    // 多章节提取时跳过关闭（避免程序化点击章节链接触发误关闭）
     document.addEventListener('click', (e) => {
+      if (window.__xxt_extracting_chapters) return;
       if (!panel.contains(e.target) && e.target !== btn
-        && !modal.contains(e.target) && !historyModal.contains(e.target)) {
+        && !modal.contains(e.target) && !historyModal.contains(e.target)
+        && !chapterModal.contains(e.target)) {
+        // 关闭面板时清除拖拽产生的内联定位样式
+        panel.style.left = '';
+        panel.style.top = '';
+        panel.style.right = '';
         panel.classList.remove('open');
       }
     });
@@ -2005,6 +2221,20 @@
             <button class="xxt-theme-btn" data-theme="light">浅色</button>
             <button class="xxt-theme-btn" data-theme="dark">深色</button>
           </div>
+        </div> 
+        <div class="xxt-setting-row">
+          <span class="xxt-setting-label">面板可拖拽</span>
+          <label class="xxt-toggle">
+            <input type="checkbox" id="xxt-chkDrag">
+            <div class="xxt-checkbox-wrap"></div>
+          </label>
+        </div>
+        <div class="xxt-setting-row">
+          <span class="xxt-setting-label">记住面板位置</span>
+          <label class="xxt-toggle">
+            <input type="checkbox" id="xxt-chkRememberPos">
+            <div class="xxt-checkbox-wrap"></div>
+          </label>
         </div>
         <div class="xxt-setting-row">
           <span class="xxt-setting-label">提取快捷键</span>
@@ -2032,6 +2262,26 @@
       });
     }
     updateThemeUI();
+
+    // 初始化拖拽复选框
+    const chkDrag = modal.querySelector('#xxt-chkDrag');
+    chkDrag.checked = currentSettings.enableDrag;
+    chkDrag.addEventListener('change', () => {
+      currentSettings.enableDrag = chkDrag.checked;
+      saveSettings(currentSettings);
+    });
+
+    // 初始化记忆面板位置复选框
+    const chkRememberPos = modal.querySelector('#xxt-chkRememberPos');
+    chkRememberPos.checked = currentSettings.rememberPanelPosition;
+    chkRememberPos.addEventListener('change', () => {
+      currentSettings.rememberPanelPosition = chkRememberPos.checked;
+      if (!chkRememberPos.checked) {
+        // 关闭记忆时清除保存的位置
+        currentSettings.panelPosition = null;
+      }
+      saveSettings(currentSettings);
+    });
 
     themeBtns.forEach(b => {
       b.addEventListener('click', () => {
@@ -2189,6 +2439,7 @@
               <div class="xxt-history-title">${escapeHtml(h.title)}</div>
               <div class="xxt-history-meta">${h.date} · ${h.totalQuestions}题 · ${fmtNames[h.format] || h.format}${flagStr}</div>
             </div>
+            <button class="xxt-history-download" data-id="${h.id}" title="重新下载">&#8681;</button>
             <button class="xxt-history-delete" data-id="${h.id}" title="删除">✕</button>
           </div>
         `;
@@ -2198,6 +2449,7 @@
       historyListEl.querySelectorAll('.xxt-history-item').forEach(item => {
         item.addEventListener('click', (e) => {
           if (e.target.closest('.xxt-history-delete')) return;
+          if (e.target.closest('.xxt-history-download')) return;
           const id = Number(item.dataset.id);
           const entry = loadHistory().find(h => h.id === id);
           if (!entry) return;
@@ -2263,6 +2515,10 @@
           renderStats(els);
           updateFilename(els);
           els.result.classList.remove('xxt-hidden');
+          // 根据是否有章节数据决定是否显示分章节选项
+          const hasChapters = entry.data.chapterDataList && entry.data.chapterDataList.length > 1;
+          els.splitToggle.classList.toggle('xxt-hidden', !hasChapters);
+          if (els.chkSplit) { els.chkSplit.checked = false; els.chkSplit.disabled = false; }
           showStatus(els, `已加载历史记录：${entry.title} (${total}题)`, 'ok');
           historyModal.classList.remove('open');
           els.btnExtract.textContent = '重新提取';
@@ -2276,6 +2532,44 @@
           const id = Number(btn.dataset.id);
           deleteHistoryById(id);
           renderHistoryList();
+        });
+      });
+
+      // 监听每一条记录中的下载按钮：点击会从历史记录中直接重新导出
+      historyListEl.querySelectorAll('.xxt-history-download').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const id = Number(btn.dataset.id);
+          const entry = loadHistory().find(h => h.id === id);
+          if (!entry) return;
+          btn.disabled = true;
+          btn.textContent = '...';
+          try {
+            const { results, typeOrder, title, format, withAnswers, withWrong, shuffle, bankImport } = entry;
+            const cleanTitle = (title || '学习通题目').replace(/[\\/:*?"<>|]/g, '_').substring(0, 60);
+            if (format === 'word') {
+              const blob = await generateWordBlob(results, typeOrder, title, withAnswers || bankImport, withWrong, bankImport);
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url; a.download = cleanTitle + '.docx'; a.click();
+              URL.revokeObjectURL(url);
+            } else {
+              const ext = format === 'md' ? '.md' : '.txt';
+              const mime = format === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8';
+              const text = withAnswers
+                ? (format === 'md' ? formatOutputWithAnswersMD(results, typeOrder) : formatOutputWithAnswers(results, typeOrder))
+                : (format === 'md' ? formatOutputMD(results, typeOrder) : formatOutput(results, typeOrder));
+              const blob = new Blob([text], { type: mime });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url; a.download = cleanTitle + ext; a.click();
+              URL.revokeObjectURL(url);
+            }
+          } catch (err) {
+            alert('导出失败: ' + err.message);
+          }
+          btn.disabled = false;
+          btn.textContent = '\u{21E9}';
         });
       });
     }
@@ -2302,6 +2596,159 @@
       }
     });
 
+    // ==================== 章节选择弹窗 ====================
+    const chapterModal = document.createElement('div');
+    chapterModal.id = 'xxt-chapter-modal';
+    chapterModal.innerHTML = `
+      <div class="xxt-modal-box">
+        <div class="xxt-modal-header">
+          <h3>选择章节</h3>
+          <button class="xxt-modal-close" id="xxt-chapter-close">&times;</button>
+        </div>
+        <div class="xxt-chapter-list" id="xxt-chapter-list"></div>
+        <div class="xxt-chapter-actions">
+          <button id="xxt-chapter-select-all" class="xxt-btn xxt-btn-outline" style="font-size:12px;">全选</button>
+          <button id="xxt-chapter-confirm" class="xxt-btn xxt-btn-extract" style="flex:1;margin:0;">确认提取</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(chapterModal);
+    const chapterListEl = chapterModal.querySelector('#xxt-chapter-list');
+    const chapterCloseBtn = chapterModal.querySelector('#xxt-chapter-close');
+    const chapterSelectAllBtn = chapterModal.querySelector('#xxt-chapter-select-all');
+    const chapterConfirmBtn = chapterModal.querySelector('#xxt-chapter-confirm');
+
+    // 根据当前页面章节列表渲染勾选框
+    function renderChapterList() {
+      const links = document.querySelectorAll('#coursetree .posCatalog_select');
+      const items = [];
+      links.forEach((link, i) => {
+        const text = (link.textContent || '').trim().substring(0, 50) || `章节 ${i + 1}`;
+        items.push(`<label class="xxt-chapter-item"><input type="checkbox" value="${i}" checked>${escapeHtml(text)}</label>`);
+      });
+      chapterListEl.innerHTML = items.join('') || '<div style="padding:12px;color:#999;">未检测到章节</div>';
+    }
+
+    chapterCloseBtn.addEventListener('click', () => chapterModal.classList.remove('open'));
+    chapterModal.addEventListener('click', (e) => {
+      if (e.target === chapterModal) chapterModal.classList.remove('open');
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && chapterModal.classList.contains('open')) {
+        chapterModal.classList.remove('open');
+      }
+    });
+
+    chapterSelectAllBtn.addEventListener('click', () => {
+      const allChecked = chapterListEl.querySelectorAll('input:checked').length === chapterListEl.querySelectorAll('input').length;
+      chapterListEl.querySelectorAll('input').forEach(cb => { cb.checked = !allChecked; });
+      chapterSelectAllBtn.textContent = allChecked ? '全选' : '取消全选';
+    });
+
+    // 确认提取选中章节
+    chapterConfirmBtn.addEventListener('click', async () => {
+      const checked = chapterListEl.querySelectorAll('input:checked');
+      if (checked.length === 0) {
+        renderChapterList();
+        return;
+      }
+      const selectedIndices = Array.from(checked).map(cb => parseInt(cb.value));
+      chapterModal.classList.remove('open');
+      els.btnExtractAll.disabled = true;
+      els.btnExtractAll.textContent = '提取中...';
+
+      const allResults = { '单选': [], '多选': [], '填空': [], '判断': [], '简答': [] };
+      const allTypeOrder = [];
+      let totalQuestions = 0, totalWrong = 0;
+      let hasAnyMyAnswer = false, hasAnyCorrectAnswer = false;
+      const chapterDataList = []; // 存储每章独立数据，用于分章节下载
+
+      // 暂存并禁用自动提取回调，避免干扰多章节提取循环
+      const savedAutoExtract = window.__xxt_auto_extract;
+      window.__xxt_auto_extract = null;
+      // 标记多章节提取中，防止程序化点击章节链接触发面板误关闭
+      window.__xxt_extracting_chapters = true;
+
+      try {
+        for (let idx = 0; idx < selectedIndices.length; idx++) {
+          const i = selectedIndices[idx];
+          els.btnExtractAll.textContent = `提取中... (${idx + 1}/${selectedIndices.length})`;
+
+          // 重新查询章节链接，避免 DOM 更新后引用失效
+          const chapterLinks = document.querySelectorAll('#coursetree .posCatalog_select');
+          if (i >= chapterLinks.length) continue;
+
+          window.__xxt_iframe_data = null;
+          chapterLinks[i].click();
+
+          // 优先等待 iframe 通过 postMessage 回传数据
+          let data = await waitForIframeResult(8000);
+
+          // 超时无数据，尝试用父窗口 extract() 直接从页面/iframe 提取
+          if (!data || !hasQuestions(data)) {
+            data = extract();
+          }
+
+          if (data && hasQuestions(data)) {
+            // 存储每章独立数据，用于分章节下载
+            chapterDataList.push({
+              title: (data.title || '').substring(0, 50) || `章节 ${idx + 1}`,
+              results: data.results,
+              typeOrder: data.typeOrder || [],
+              wrongCount: data.wrongCount || 0,
+              hasMyAnswer: data.hasMyAnswer,
+              hasCorrectAnswer: data.hasCorrectAnswer,
+            });
+            for (const [type, questions] of Object.entries(data.results || {})) {
+              if (allResults[type]) allResults[type].push(...questions);
+            }
+            for (const type of (data.typeOrder || [])) {
+              if (!allTypeOrder.includes(type)) allTypeOrder.push(type);
+            }
+            totalQuestions += Object.values(data.results || {}).reduce((s, a) => s + a.length, 0);
+            totalWrong += data.wrongCount || 0;
+            if (data.hasMyAnswer) hasAnyMyAnswer = true;
+            if (data.hasCorrectAnswer) hasAnyCorrectAnswer = true;
+          }
+        }
+      } finally {
+        // 恢复自动提取回调
+        window.__xxt_auto_extract = savedAutoExtract;
+        // 清除多章节提取标记
+        window.__xxt_extracting_chapters = false;
+      }
+
+      if (totalQuestions === 0) {
+        showStatus(els, '未提取到任何题目', 'warn');
+        els.btnExtractAll.disabled = false;
+        els.btnExtractAll.textContent = '提取多个章节';
+        return;
+      }
+
+      extractedData = {
+        total: totalQuestions, title: document.title || '学习通多章节', typeOrder: allTypeOrder, results: allResults,
+        wrongCount: totalWrong, hasMyAnswer: hasAnyMyAnswer, hasCorrectAnswer: hasAnyCorrectAnswer,
+        breakdown: Object.fromEntries(Object.entries(allResults).map(([k, v]) => [k, v.length])),
+        chapterDataList: chapterDataList, // 分章节数据，用于分章节下载
+        text: formatOutput(allResults, allTypeOrder),
+        textWithAnswers: formatOutputWithAnswers(allResults, allTypeOrder),
+        textWrong: formatWrongQuestionsTXT(allResults, allTypeOrder),
+        textMD: formatOutputMD(allResults, allTypeOrder),
+        textWithAnswersMD: formatOutputWithAnswersMD(allResults, allTypeOrder),
+        textWrongMD: formatWrongQuestionsMD(allResults, allTypeOrder),
+      };
+
+      renderStats(els);
+      updateFilename(els);
+      els.result.classList.remove('xxt-hidden');
+      // 多章节时显示分章节下载选项
+      els.splitToggle.classList.toggle('xxt-hidden', !(chapterDataList && chapterDataList.length > 1));
+      showStatus(els, `已提取 ${selectedIndices.length} 个章节，共 ${totalQuestions} 道题目` + (totalWrong > 0 ? `，含 ${totalWrong} 道错题` : ''), 'ok');
+      els.btnExtractAll.disabled = false;
+      els.btnExtractAll.textContent = '提取多个章节';
+      els.btnExtract.textContent = '重新提取';
+    });
+
     // 格式/选项切换时更新文件名
     panel.addEventListener('change', (e) => {
       if (!extractedData) return;
@@ -2311,6 +2758,12 @@
         // 题库导入格式选项仅在 Word 格式下显示
         if (els.bankImportToggle) els.bankImportToggle.style.display = isWord ? '' : 'none';
         if (!isWord && els.chkBankImport) els.chkBankImport.checked = false;
+        // Word 格式不支持分章节下载，禁用该选项
+        if (els.splitToggle) {
+          els.splitToggle.classList.toggle('xxt-disabled', isWord);
+          if (isWord && els.chkSplit) els.chkSplit.checked = false;
+          if (els.chkSplit) els.chkSplit.disabled = isWord;
+        }
       }
       // 题库导入格式切换：勾选时禁用打乱和答案选项（不隐藏，维持高度稳定）
       if (e.target === els.chkBankImport) {
@@ -2342,6 +2795,8 @@
       if (e.target === els.chkAnswers) {
         updateFilename(els);
       }
+      // 保存导出配置
+      if (extractedData) saveExportConfig(els);
     });
 
     els.btnExtract.addEventListener('click', () => {
@@ -2377,6 +2832,7 @@
       renderStats(els);
       updateFilename(els);
       els.result.classList.remove('xxt-hidden');
+      els.splitToggle.classList.add('xxt-hidden'); // 单页提取时隐藏分章节选项
 
       // 没有正确答案时禁用“附加答案”
       if (els.chkAnswers) {
@@ -2400,35 +2856,94 @@
       }
 
       showStatus(els, `成功提取 ${total} 道题目` + (wrongCount > 0 ? `，含 ${wrongCount} 道错题` : ''), 'ok');
+      // 提取成功后，若存在多个章节则显示"提取多个章节"按钮
+      const chapterCount = document.querySelectorAll('#coursetree .posCatalog_select').length;
+      els.btnExtractAll.style.display = chapterCount > 1 ? '' : 'none';
       els.btnExtract.disabled = false;
       els.btnExtract.textContent = '重新提取';
     });
 
+    // 等待 iframe 发送提取结果（用于批量提取章节）
+    function waitForIframeResult(timeout) {
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(null), timeout);
+        const handler = function(e) {
+          if (e.data && e.data.type === 'xxt-iframe-result' && e.data.data) {
+            clearTimeout(timer);
+            window.removeEventListener('message', handler);
+            resolve(e.data.data);
+          }
+        };
+        window.addEventListener('message', handler);
+      });
+    }
+
+    // 点击"提取多个章节"→ 弹出章节选择弹窗
+    els.btnExtractAll.addEventListener('click', () => {
+      renderChapterList();
+      chapterModal.classList.add('open');
+    });
+
+    // 为单个章节生成输出文本（用于分章节下载）
+    function getChapterText(chapter, fmt, els) {
+      const results = chapter.results || {};
+      const typeOrder = chapter.typeOrder || [];
+      const withAnswers = els.chkAnswers && els.chkAnswers.checked;
+      const withWrong = els.chkWrong && els.chkWrong.checked;
+      const doShuffle = els.chkShuffle && els.chkShuffle.checked;
+      const activeResults = doShuffle ? shuffleQuestions(results, typeOrder) : results;
+      if (fmt === 'md') {
+        if (withWrong) return formatWrongQuestionsMD(activeResults, typeOrder);
+        if (withAnswers) return formatOutputWithAnswersMD(activeResults, typeOrder);
+        return formatOutputMD(activeResults, typeOrder);
+      }
+      if (withWrong) return formatWrongQuestionsTXT(activeResults, typeOrder);
+      if (withAnswers) return formatOutputWithAnswers(activeResults, typeOrder);
+      return formatOutput(activeResults, typeOrder);
+    }
+
     els.btnDownload.addEventListener('click', async () => {
       if (!extractedData) return;
       const fmt = getFormat(els);
+      const isSplit = els.chkSplit && els.chkSplit.checked
+        && extractedData.chapterDataList && extractedData.chapterDataList.length > 1;
+      const baseFilename = (els.filename.value || '学习通题目').replace(/\.(txt|md|docx)$/, '');
 
       if (fmt === 'word') {
+        // Word 分章节下载暂不支持，提示用户并合并导出
+        if (isSplit) {
+          showStatus(els, 'Word 格式暂不支持分章节下载，已合并导出', 'warn');
+        }
         // Word 试卷导出
         els.btnDownload.disabled = true;
-        els.btnDownload.textContent = '生成中...';
+        els.btnDownload.textContent = '生成中';
+        // 进度动画：每 500ms 加一个点
+        let dotCount = 0;
+        const dotTimer = setInterval(() => {
+          dotCount = (dotCount + 1) % 4;
+          els.btnDownload.textContent = '生成中' + '.'.repeat(dotCount);
+        }, 500);
         try {
           const isBankImport = els.chkBankImport && els.chkBankImport.checked;
-          // 题库导入格式：不打乱、始终含答案
           const doShuffle = !isBankImport && els.chkShuffle && els.chkShuffle.checked;
           const withWrong = !isBankImport && els.chkWrong && els.chkWrong.checked;
           const activeResults = doShuffle
             ? shuffleQuestions(extractedData.results, extractedData.typeOrder)
             : extractedData.results;
+          window.__xxt_failed_image_count = 0;
           const blob = await generateWordBlob(activeResults, extractedData.typeOrder, extractedData.title, isBankImport || els.chkAnswers.checked, withWrong, isBankImport);
-          const filename = (els.filename.value || '学习通试卷').replace(/\.(txt|md|docx)$/, '') + '.docx';
+          clearInterval(dotTimer);
+          const filename = baseFilename + '.docx';
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url; a.download = filename; a.click();
           URL.revokeObjectURL(url);
-          showStatus(els, isBankImport ? '题库导入格式已下载' : 'Word 试卷' + (els.chkAnswers.checked ? '（含答案）' : '') + (withWrong ? '（含错题）' : '') + '已下载', 'ok');
+          const failedImg = window.__xxt_failed_image_count || 0;
+          const warnMsg = failedImg > 0 ? `（${failedImg} 张图片加载失败）` : '';
+          showStatus(els, (isBankImport ? '题库导入格式已下载' : 'Word 试卷' + (els.chkAnswers.checked ? '（含答案）' : '') + (withWrong ? '（含错题）' : '') + '已下载') + warnMsg, failedImg > 0 ? 'warn' : 'ok');
           addToHistory(extractedData, 'word', isBankImport || els.chkAnswers.checked, withWrong, doShuffle, isBankImport, '');
         } catch (err) {
+          clearInterval(dotTimer);
           showStatus(els, 'Word 导出失败: ' + err.message, 'err');
         }
         els.btnDownload.disabled = false;
@@ -2436,15 +2951,39 @@
         return;
       }
 
-      const text = getOutputText(els);
-      const filename = els.filename.value || '学习通题目.txt';
       const ext = fmt === 'md' ? '.md' : '.txt';
       const mime = fmt === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8';
+
+      if (isSplit) {
+        // 分章节下载：每个章节单独一个文件
+        const chapters = extractedData.chapterDataList;
+        for (let i = 0; i < chapters.length; i++) {
+          const ch = chapters[i];
+          // 生成单章文本
+          const chText = getChapterText(ch, fmt, els);
+          const safeTitle = (ch.title || `章节${i + 1}`).replace(/[\\/:*?"<>|]/g, '_');
+          const chFilename = baseFilename + `_${i + 1}_${safeTitle}` + ext;
+          const blob = new Blob([chText], { type: mime });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.download = chFilename; a.click();
+          URL.revokeObjectURL(url);
+          // 浏览器下载间隔，避免多个下载被拦截
+          await new Promise(r => setTimeout(r, 300));
+        }
+        showStatus(els, `已下载 ${chapters.length} 个章节文件`, 'ok');
+        addToHistory(extractedData, fmt, els.chkAnswers.checked, els.chkWrong && els.chkWrong.checked, els.chkShuffle && els.chkShuffle.checked, false, '');
+        return;
+      }
+
+      // 合并下载
+      const text = getOutputText(els);
+      const filename = baseFilename + ext;
       const blob = new Blob([text], { type: mime });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = filename.endsWith(ext) ? filename : filename + ext;
+      a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
       addToHistory(extractedData, fmt, els.chkAnswers.checked, els.chkWrong && els.chkWrong.checked, els.chkShuffle && els.chkShuffle.checked, false, text);
@@ -2550,7 +3089,10 @@
   // ==================== 初始化 ====================
   // 检测是否在 iframe 中运行
   let isInIframe = false;
-  try { isInIframe = window.top !== window.self; } catch(e) { isInIframe = true; }
+  try { 
+    isInIframe = window.top !== window.self; 
+  } 
+  catch(e) { isInIframe = true; }
 
   let initTimer = null;
   let observer = null;
@@ -2594,7 +3136,7 @@
     setTimeout(iframeExtract, 1500);
     setTimeout(iframeExtract, 3000);
     // 定时轮询兜底，应对 SPA 切换章节时 MutationObserver 遗漏
-    setInterval(iframeExtract, 5000);
+    setInterval(iframeExtract, 2000);
   } else {
     // 在顶层窗口中：正常创建 UI 并监听 iframe 回传数据
     if (document.readyState === 'loading') {

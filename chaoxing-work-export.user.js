@@ -6,7 +6,6 @@
 // @author       huilin
 // @icon         http://pan-yz.chaoxing.com/favicon.ico
 // @match        *://*.chaoxing.com/*
-// @match        *://*.edu.cn/*
 // @require      https://unpkg.com/docx@8.5.0/build/index.umd.js
 // @grant        none
 // ==/UserScript==
@@ -729,14 +728,14 @@
       results: extractedData.results,
       wrongCount: extractedData.wrongCount,
       hasMyAnswer: extractedData.hasMyAnswer,
+      hasCorrectAnswer: extractedData.hasCorrectAnswer,
+      chapterDataList: extractedData.chapterDataList || null,
       outputText: outputText || ''
     };
-    // 去重：相同标题+相同格式的旧记录替换
-    const filtered = history.filter(h => !(h.title === entry.title && h.format === entry.format));
-    filtered.unshift(entry);
-    if (filtered.length > MAX_HISTORY) filtered.length = MAX_HISTORY;
-    saveHistory(filtered);
-    return filtered;
+    // 直接追加到最前，不按标题+格式去重（避免误删同名但内容不同的记录）
+    history.unshift(entry);
+    if (history.length > MAX_HISTORY) history.length = MAX_HISTORY;
+    saveHistory(history);
   }
 
   function deleteHistoryById(id) {
@@ -2461,6 +2460,7 @@
           extractedData = {
             total, title: entry.title, typeOrder, results,
             wrongCount: entry.wrongCount, hasMyAnswer: entry.hasMyAnswer, hasCorrectAnswer,
+            chapterDataList: entry.chapterDataList || null,
             breakdown: Object.fromEntries(Object.entries(results).map(([k, v]) => [k, v.length])),
             text: formatOutput(results, typeOrder),
             textWithAnswers: formatOutputWithAnswers(results, typeOrder),
@@ -2516,7 +2516,7 @@
           updateFilename(els);
           els.result.classList.remove('xxt-hidden');
           // 根据是否有章节数据决定是否显示分章节选项
-          const hasChapters = entry.data.chapterDataList && entry.data.chapterDataList.length > 1;
+          const hasChapters = entry.chapterDataList && entry.chapterDataList.length > 1;
           els.splitToggle.classList.toggle('xxt-hidden', !hasChapters);
           if (els.chkSplit) { els.chkSplit.checked = false; els.chkSplit.disabled = false; }
           showStatus(els, `已加载历史记录：${entry.title} (${total}题)`, 'ok');

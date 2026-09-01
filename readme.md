@@ -27,5 +27,5 @@
 
 谢谢以下开源贡献者～
 <a href=" ">  
- <img src="https://contrib.rocks/image?repo=chenhuilin2/chaoxing-work-parser" />
+ <img src="https://contrib.rocks/image?repo=chenhuilin2/chaoxing-work-parser" width="100"/>
 </a >

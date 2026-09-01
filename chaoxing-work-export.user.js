@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         超星学习通作业/考试一键提取导出word文档
 // @license      GPL-3.0
-// @version      1.11.1
+// @version      2.0.1
 // @description  一键提取学习通作业题目，支持富文本（图文混排），Word/TXT/MD 导出，答案/错题收集，题库导入格式，暗色模式，快捷键，iframe 提取
 // @author       huilin
 // @icon         http://pan-yz.chaoxing.com/favicon.ico
@@ -833,13 +833,14 @@
   // 规范化富文本数组：合并相邻文本节点、去首尾空行、压缩空白
   function normalizeRichContent(parts) {
     const normalized = [];
-    const pushText = (text) => {
-      if (!text) return;
-      const value = text.replace(/\u00a0/g, ' ').replace(/[ \t\r\f]+/g, ' ');
+    const pushText = (part) => {
+      if (!part.text) return;
+      const value = part.text.replace(/\u00a0/g, ' ').replace(/[ \t\r\f]+/g, ' ');
       if (!value) return;
       const last = normalized[normalized.length - 1];
+      // 合并相邻文本，保留第一个 part 的格式属性
       if (last && last.type === 'text') last.text += value;
-      else normalized.push({ type: 'text', text: value });
+      else normalized.push({ type: 'text', text: value, bold: part.bold, italic: part.italic, subScript: part.subScript, superScript: part.superScript });
     };
     const pushBreak = () => {
       const last = normalized[normalized.length - 1];
@@ -849,7 +850,7 @@
     for (const part of parts || []) {
       if (!part) continue;
       if (part.type === 'text') {
-        pushText(part.text);
+        pushText(part);
       } else if (part.type === 'image' && part.url) {
         normalized.push(part);
       } else if (part.type === 'break') {
@@ -867,10 +868,10 @@
     const parts = [];
     if (!el) return parts;
 
-    const walk = (node) => {
+    const walk = (node, bold = false, italic = false, subScript = false, superScript = false) => {
       if (!node) return;
       if (node.nodeType === Node.TEXT_NODE) {
-        parts.push({ type: 'text', text: node.nodeValue || '' });
+        parts.push({ type: 'text', text: node.nodeValue || '', bold, italic, subScript, superScript });
         return;
       }
       if (node.nodeType !== Node.ELEMENT_NODE) return;
@@ -887,12 +888,18 @@
         return;
       }
 
+      // 追踪格式状态：子元素继承父元素格式
+      const childBold = bold || ['STRONG', 'B'].includes(tag);
+      const childItalic = italic || ['EM', 'I'].includes(tag);
+      const childSub = subScript || tag === 'SUB';
+      const childSup = superScript || tag === 'SUP';
+
       const beforeLen = parts.length;
-      node.childNodes.forEach(walk);
+      node.childNodes.forEach(child => walk(child, childBold, childItalic, childSub, childSup));
       if (RICH_BLOCK_TAGS.has(tag) && parts.length > beforeLen) parts.push({ type: 'break' });
     };
 
-    el.childNodes.forEach(walk);
+    el.childNodes.forEach(child => walk(child));
     return normalizeRichContent(parts);
   }
 
@@ -1614,10 +1621,17 @@
     if (!url) return null;
     const base64 = await fetchImageAsset(url);
     if (base64) {
+      // 按比例限制最大宽高，避免固定尺寸导致变形
+      const maxWidth = 420;
+      const maxHeight = 260;
+      const scale = Math.min(maxWidth / base64.width, maxHeight / base64.height, 1);
       return new docx.ImageRun({
         data: base64,
-        transformation: { width: 300, height: 200 },
-        type: 'png'
+        transformation: {
+          width: Math.round(base64.width * scale),
+          height: Math.round(base64.height * scale)
+        },
+        type: base64.type
       });
     }
     // 图片加载失败，记录计数
@@ -1628,21 +1642,31 @@
   async function buildRichRuns(content, prefix = '') {
     const { TextRun } = docx;
     const runs = [];
-    if (prefix) runs.push(new TextRun({ text: prefix, font: "宋体", size: 24 }));
+    if (prefix) runs.push(new TextRun({ text: prefix, font: "Microsoft YaHei", size: 22 }));
     for (const part of content || []) {
       if (part.type === 'text') {
         const normalized = part.text.replace(/\n+/g, ' ');
-        if (normalized) runs.push(new TextRun({ text: normalized, font: "宋体", size: 24 }));
+        if (normalized) {
+          runs.push(new TextRun({
+            text: normalized,
+            font: "Microsoft YaHei",
+            size: 22,
+            bold: part.bold || false,
+            italics: part.italic || false,
+            subScript: part.subScript || false,
+            superScript: part.superScript || false
+          }));
+        }
       } else if (part.type === 'image') {
-        if (runs.length > 0) runs.push(new TextRun({ text: ' ', font: "宋体", size: 24 }));
+        if (runs.length > 0) runs.push(new TextRun({ text: ' ', font: "Microsoft YaHei", size: 22 }));
         const imgRun = await buildImageRun(part.url);
         if (imgRun) runs.push(imgRun);
-        runs.push(new TextRun({ text: ' ', font: "宋体", size: 24 }));
+        runs.push(new TextRun({ text: ' ', font: "Microsoft YaHei", size: 22 }));
       } else if (part.type === 'break') {
-        runs.push(new TextRun({ text: '\n', break: 1, font: "宋体", size: 24 }));
+        runs.push(new TextRun({ text: '\n', break: 1, font: "Microsoft YaHei", size: 22 }));
       }
     }
-    return runs.length ? runs : [new TextRun({ text: prefix, font: "宋体", size: 24 })];
+    return runs.length ? runs : [new TextRun({ text: prefix, font: "Microsoft YaHei", size: 22 })];
   }
 
   // 将富文本内容构建为带段后间距的 Paragraph 数组（Word 导出用）
@@ -1660,10 +1684,34 @@
     return questionContent(q);
   }
 
+  // 清洗答案文本：去除"正确答案:"/"我的答案:"等标签，避免组合出现
+  function cleanAnswerText(text) {
+    if (!text) return '';
+    return text
+      .replace(/\u00a0/g, ' ')
+      .replace(/\r/g, '\n')
+      .replace(/(?:正确答案|参考答案)[:：]?\s*/g, '')
+      .replace(/(?:我的答案|你的答案|学生答案)[:：]?\s*/g, '')
+      .replace(/^[：:\s]+/, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
   async function generateWordBlob(results, typeOrder, title, withAnswers, withWrong, bankImport) {
     const { Document, Packer, Paragraph, TextRun, ImageRun,
-            AlignmentType, convertMillimetersToTwip,
-            TabStopType, PageBreak } = docx;
+            AlignmentType, convertMillimetersToTwip, HeadingLevel,
+            BorderStyle, ShadingType, PageBreak, TabStopType } = docx;
+
+    const FONT = 'Microsoft YaHei';
+    const COLOR = {
+      title: '1F2937',
+      muted: '6B7280',
+      border: 'E5E7EB',
+      answer: '00A870',
+      wrong: 'DC2626',
+      analysisBg: 'F7F9FC',
+      type: '64748B',
+    };
 
     const typeHeaders = {
       '单选': '一、单项选择题', '多选': '二、多项选择题',
@@ -1680,7 +1728,8 @@
     if (bankImport) {
       const children = [];
       children.push(new Paragraph({
-        children: [new TextRun({ text: title || '题库导入', font: "宋体", size: 32, bold: true, color: "000000" })],
+        children: [new TextRun({ text: title || '题库导入', font: FONT, size: 32, bold: true, color: COLOR.title })],
+        heading: HeadingLevel.HEADING_1,
         alignment: AlignmentType.CENTER,
         spacing: { after: 240 }
       }));
@@ -1699,7 +1748,7 @@
           const stemText = formatRichForText(questionContent(q));
           const stem = prefix + stemText.replace(/\(\s{2,}\)/g, '（ ）').replace(/（\s{2,}）/g, '（ ）');
           children.push(new Paragraph({
-            children: [new TextRun({ text: `${qNum}.${stem}`, font: "宋体", size: 24 })],
+            children: [new TextRun({ text: `${qNum}.${stem}`, font: FONT, size: 22 })],
             spacing: { after: 40 }
           }));
           // 题干中的图片
@@ -1722,6 +1771,7 @@
             const runs = await buildRichRuns(optionContent(opt), `${opt.letter}. `);
             children.push(new Paragraph({
               children: runs,
+              indent: { left: 400, hanging: 200 },
               spacing: { after: 40 }
             }));
           }
@@ -1730,20 +1780,22 @@
           const answer = formatRichForText(answerContent(q)).trim();
           if (answer) {
             let formattedAnswer = answer;
+            // 格式化答案内容
+            let formattedAnswerParts = null;
             if (qtype === '多选') {
               const parts = answer.replace(/\s+/g, '').split('');
               formattedAnswerParts = [{ type: 'text', text: parts.join('，') }];
-            } else if (!hasAnswerImage && qtype === '判断') {
+            } else if (qtype === '判断') {
               if (/^[√✓Tt]|正确|True|TRUE/.test(answer)) {
                 formattedAnswerParts = [{ type: 'text', text: '对' }];
               } else {
                 formattedAnswerParts = [{ type: 'text', text: '错' }];
               }
             }
-            children.push(...await buildRichParagraphs(formattedAnswerParts, '答案：', 120));
+            children.push(...await buildRichParagraphs(formattedAnswerParts || [{ type: 'text', text: answer }], '答案：', 120));
           } else {
             children.push(new Paragraph({
-              children: [new TextRun({ text: '', font: "宋体", size: 24 })],
+              children: [new TextRun({ text: '', font: FONT, size: 22 })],
               spacing: { after: 120 }
             }));
           }
@@ -1751,9 +1803,17 @@
       }
 
       const doc = new Document({
+        styles: {
+          paragraphStyles: [{
+            id: 'Normal', name: 'Normal',
+            run: { font: FONT, size: 22, color: COLOR.title },
+            paragraph: { spacing: { line: 330, lineRule: 'auto' } },
+          }],
+        },
         sections: [{
           properties: {
             page: {
+              size: { width: 11906, height: 16838 },
               margin: {
                 top: convertMillimetersToTwip(20),
                 bottom: convertMillimetersToTwip(20),
@@ -1773,9 +1833,31 @@
 
     // 标题
     children.push(new Paragraph({
-      children: [new TextRun({ text: title || '试卷', font: "宋体", size: 32, bold: true, color: "000000" })],
+      children: [new TextRun({ text: title || '试卷', font: FONT, size: 32, bold: true, color: '2563EB' })],
+      heading: HeadingLevel.HEADING_1,
       alignment: AlignmentType.CENTER,
-      spacing: { after: 240 }
+      spacing: { before: 200, after: 120 }
+    }));
+
+    // 统计摘要
+    let totalQ = 0;
+    const typeCount = {};
+    for (const qtype of typeOrder) {
+      const questions = results[qtype];
+      if (!questions || questions.length === 0) continue;
+      typeCount[qtype] = questions.length;
+      totalQ += questions.length;
+    }
+    const summary = Object.entries(typeCount)
+      .map(([type, count]) => `${type} ${count} 道`)
+      .join(' / ');
+    children.push(new Paragraph({
+      children: [
+        new TextRun({ text: `共 ${totalQ} 道题`, font: FONT, size: 20, color: COLOR.muted }),
+        ...(summary ? [new TextRun({ text: ` · ${summary}`, font: FONT, size: 20, color: COLOR.muted })] : []),
+      ],
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 60, after: 260 }
     }));
 
     let qNum = 0;
@@ -1788,7 +1870,7 @@
       const count = questions.length;
 
       children.push(new Paragraph({
-        children: [new TextRun({ text: `${header}（本大题共${count}小题）`, font: "宋体", size: 28, bold: true, color: "000000" })],
+        children: [new TextRun({ text: `${header}（本大题共${count}小题）`, font: FONT, size: 28, bold: true, color: COLOR.title })],
         spacing: { after: 120 }
       }));
 
@@ -1797,9 +1879,13 @@
         const stemContent = questionContent(q);
 
         if (qtype === '单选' || qtype === '多选') {
+          // 题目块
           children.push(new Paragraph({
-            children: await buildRichRuns(stemContent, `${qNum}. `),
-            spacing: { after: 40 }
+            children: [
+              new TextRun({ text: `${qNum}. `, font: FONT, size: 22, bold: true, color: COLOR.title }),
+              ...await buildRichRuns(stemContent)
+            ],
+            spacing: { before: 220, after: 100 }
           }));
           const options = q.options || [];
           if (options.length > 0) {
@@ -1810,7 +1896,8 @@
               for (const opt of options) {
                 children.push(new Paragraph({
                   children: await buildRichRuns(optionContent(opt), `${opt.letter}. `),
-                  spacing: { after: 40 }
+                  indent: { left: 620, hanging: 220 },
+                  spacing: { before: 30, after: 30 }
                 }));
               }
             } else {
@@ -1820,16 +1907,18 @@
                 const leftRuns = await buildRichRuns(optionContent(left), `${left.letter}. `);
                 if (right) {
                   const rightRuns = await buildRichRuns(optionContent(right), `${right.letter}. `);
-                  const tabRun = new TextRun({ text: '\t', font: "宋体", size: 24 });
+                  const tabRun = new TextRun({ text: '\t', font: FONT, size: 22 });
                   children.push(new Paragraph({
                     children: [...leftRuns, tabRun, ...rightRuns],
+                    indent: { left: 400, hanging: 200 },
                     tabStops: [{ type: TabStopType.LEFT, position: 4500 }],
-                    spacing: { after: 40 }
+                    spacing: { before: 30, after: 30 }
                   }));
                 } else {
                   children.push(new Paragraph({
                     children: leftRuns,
-                    spacing: { after: 40 }
+                    indent: { left: 620, hanging: 220 },
+                    spacing: { before: 30, after: 30 }
                   }));
                 }
               }
@@ -1838,26 +1927,34 @@
           }
         } else if (qtype === '填空') {
           children.push(new Paragraph({
-            children: await buildRichRuns(stemContent, `${qNum}. `),
-            spacing: { after: 40 }
+            children: [
+              new TextRun({ text: `${qNum}. `, font: FONT, size: 22, bold: true, color: COLOR.title }),
+              ...await buildRichRuns(stemContent)
+            ],
+            spacing: { before: 220, after: 40 }
           }));
           children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
         } else if (qtype === '判断') {
-          // 输出题干，题干末尾追加判断括号，避免重复输出
-          const judgeRuns = await buildRichRuns(stemContent, `${qNum}. `);
-          judgeRuns.push(new TextRun({ text: '（  ）', font: "宋体", size: 24 }));
+          const judgeRuns = await buildRichRuns(stemContent);
+          judgeRuns.push(new TextRun({ text: '（  ）', font: FONT, size: 22 }));
           children.push(new Paragraph({
-            children: judgeRuns,
-            spacing: { after: 120 }
+            children: [
+              new TextRun({ text: `${qNum}. `, font: FONT, size: 22, bold: true, color: COLOR.title }),
+              ...judgeRuns
+            ],
+            spacing: { before: 220, after: 120 }
           }));
         } else if (qtype === '简答') {
           children.push(new Paragraph({
-            children: await buildRichRuns(stemContent, `${qNum}. `),
-            spacing: { after: 40 }
+            children: [
+              new TextRun({ text: `${qNum}. `, font: FONT, size: 22, bold: true, color: COLOR.title }),
+              ...await buildRichRuns(stemContent)
+            ],
+            spacing: { before: 220, after: 40 }
           }));
           for (let i = 0; i < 8; i++) {
             children.push(new Paragraph({
-              children: [new TextRun({ text: '', font: "宋体", size: 24 })],
+              children: [new TextRun({ text: '', font: FONT, size: 22 })],
               spacing: { after: 40 }
             }));
           }
@@ -1873,9 +1970,10 @@
         spacing: { after: 0 }
       }));
       children.push(new Paragraph({
-        children: [new TextRun({ text: '参考答案', font: "宋体", size: 32, bold: true, color: "000000" })],
+        children: [new TextRun({ text: '正确答案', font: FONT, size: 32, bold: true, color: COLOR.title })],
+        heading: HeadingLevel.HEADING_1,
         alignment: AlignmentType.CENTER,
-        spacing: { after: 240 }
+        spacing: { before: 200, after: 240 }
       }));
       let aNum = 0;
       for (const qtype of typeOrder) {
@@ -1883,19 +1981,38 @@
         if (!questions || questions.length === 0) continue;
         const header = typeHeaders[qtype] || qtype;
         children.push(new Paragraph({
-          children: [new TextRun({ text: header, font: "宋体", size: 28, bold: true, color: "000000" })],
+          children: [new TextRun({ text: header, font: FONT, size: 28, bold: true, color: COLOR.title })],
           spacing: { after: 120 }
         }));
         for (const q of questions) {
           aNum++;
-          const answerRich = answerContent(q);
-          const answerRuns = await buildRichRuns(answerRich);
+          // 清洗答案文本，去除"正确答案:"/"我的答案:"等标签组合
+          const answerContentArr = answerContent(q);
+          const cleanedContent = answerContentArr.map(part => {
+            if (part.type === 'text') {
+              return { ...part, text: cleanAnswerText(part.text) };
+            }
+            return part;
+          });
+          const answerRuns = await buildRichRuns(cleanedContent);
           if (answerRuns.length === 0) {
-            answerRuns.push(new TextRun({ text: '（未找到答案）', font: "宋体", size: 24 }));
+            answerRuns.push(new TextRun({ text: '（未找到答案）', font: FONT, size: 22, color: COLOR.muted }));
+          } else {
+            // 将答案文本改为绿色加粗
+            answerRuns.forEach(run => {
+              if (run.font) run.font = FONT;
+              run.size = 22;
+              run.bold = true;
+              run.color = COLOR.answer;
+            });
           }
           children.push(new Paragraph({
-            children: [new TextRun({ text: `${aNum}. `, font: "宋体", size: 24 }), ...answerRuns],
-            spacing: { after: 60 }
+            children: [
+              new TextRun({ text: `${aNum}. `, font: FONT, size: 22, color: COLOR.title }),
+              ...answerRuns
+            ],
+            spacing: { before: 90, after: 70 },
+            indent: { left: 420 }
           }));
         }
       }
@@ -1919,9 +2036,10 @@
           spacing: { after: 0 }
         }));
         children.push(new Paragraph({
-          children: [new TextRun({ text: '错题汇总', font: "宋体", size: 32, bold: true, color: "000000" })],
+          children: [new TextRun({ text: '错题汇总', font: FONT, size: 32, bold: true, color: COLOR.title })],
+          heading: HeadingLevel.HEADING_1,
           alignment: AlignmentType.CENTER,
-          spacing: { after: 240 }
+          spacing: { before: 200, after: 240 }
         }));
 
         let globalNum = 0;
@@ -1938,7 +2056,7 @@
           if (!sectionHasWrong) { globalNum += questions.length; continue; }
 
           children.push(new Paragraph({
-            children: [new TextRun({ text: header, font: "宋体", size: 28, bold: true, color: "000000" })],
+            children: [new TextRun({ text: header, font: FONT, size: 28, bold: true, color: COLOR.title })],
             spacing: { after: 120 }
           }));
 
@@ -1947,28 +2065,48 @@
             if (!q.isWrong) continue;
             children.push(new Paragraph({
               children: await buildRichRuns(questionContent(q), `${globalNum}. `),
-              spacing: { after: 40 }
+              spacing: { before: 160, after: 40 }
             }));
             const options = q.options || [];
             if (options.length > 0) {
               for (const opt of options) {
                 children.push(new Paragraph({
                   children: await buildRichRuns(optionContent(opt), `${opt.letter}. `),
-                  spacing: { after: 40 }
+                  indent: { left: 620, hanging: 220 },
+                  spacing: { before: 30, after: 30 }
                 }));
               }
             }
             children.push(new Paragraph({
-              children: [new TextRun({ text: `我的答案: ${q.myAnswer || '无'}`, font: "宋体", size: 24, color: "DC2626" })],
-              spacing: { after: 40 }
+              children: [new TextRun({ text: `我的答案: ${q.myAnswer || '无'}`, font: FONT, size: 22, color: COLOR.wrong })],
+              spacing: { before: 60, after: 40 },
+              indent: { left: 420 }
             }));
-            const correctRuns = await buildRichRuns(answerContent(q));
+            const answerContentArr = answerContent(q);
+            const cleanedContent = answerContentArr.map(part => {
+              if (part.type === 'text') {
+                return { ...part, text: cleanAnswerText(part.text) };
+              }
+              return part;
+            });
+            const correctRuns = await buildRichRuns(cleanedContent);
             if (correctRuns.length === 0) {
-              correctRuns.push(new TextRun({ text: '（未找到答案）', font: "宋体", size: 24, color: "16A34A" }));
+              correctRuns.push(new TextRun({ text: '（未找到答案）', font: FONT, size: 22, color: COLOR.muted }));
+            } else {
+              correctRuns.forEach(run => {
+                if (run.font) run.font = FONT;
+                run.size = 22;
+                run.bold = true;
+                run.color = COLOR.answer;
+              });
             }
             children.push(new Paragraph({
-              children: [new TextRun({ text: '正确答案: ', font: "宋体", size: 24, color: "16A34A" }), ...correctRuns],
-              spacing: { after: 120 }
+              children: [
+                new TextRun({ text: '正确答案：', font: FONT, size: 22, bold: true, color: COLOR.answer }),
+                ...correctRuns
+              ],
+              spacing: { before: 40, after: 120 },
+              indent: { left: 420 }
             }));
           }
         }
@@ -1976,14 +2114,22 @@
     }
 
     const doc = new Document({
+      styles: {
+        paragraphStyles: [{
+          id: 'Normal', name: 'Normal',
+          run: { font: FONT, size: 22, color: COLOR.title },
+          paragraph: { spacing: { line: 330, lineRule: 'auto' } },
+        }],
+      },
       sections: [{
         properties: {
           page: {
+            size: { width: 11906, height: 16838 },
             margin: {
-              top: convertMillimetersToTwip(25),
-              bottom: convertMillimetersToTwip(25),
-              left: convertMillimetersToTwip(25),
-              right: convertMillimetersToTwip(25)
+              top: 1134,
+              right: 1134,
+              bottom: 1134,
+              left: 1134
             }
           }
         },
@@ -2806,6 +2952,12 @@
       els.result.classList.add('xxt-hidden');
 
       const { results, typeOrder, wrongCount, hasMyAnswer, hasCorrectAnswer } = extract();
+      // 调试：记录提取路径是否有错
+      if (results && !hasCorrectAnswer) {
+        console.log('[XXT] 提取路径: 文档中有 .mark_item:', !!document.querySelector('.mark_item'),
+          ', #ZyBottom:', !!document.querySelector('#ZyBottom'),
+          ', .questionLi:', !!document.querySelector('.questionLi'));
+      }
       const total = Object.values(results).reduce((s, a) => s + a.length, 0);
 
       if (total === 0) {
@@ -2838,6 +2990,17 @@
       if (els.chkAnswers) {
         els.chkAnswers.checked = hasCorrectAnswer ? els.chkAnswers.checked : false;
         els.chkAnswers.disabled = !hasCorrectAnswer;
+      }
+      // 调试：打印提取结果信息
+      console.log('[XXT] 提取结果:', { total, hasCorrectAnswer, hasMyAnswer, wrongCount, typeOrder });
+      // 如果 hasCorrectAnswer 为 false，尝试打印每道题的信息
+      if (!hasCorrectAnswer) {
+        for (const t of typeOrder) {
+          const qs = results[t] || [];
+          qs.forEach((q, i) => {
+            console.log(`[XXT] 题#${i+1} [${t}]: correctAnswer="${q.correctAnswer}", correctAnswerContent长度=${(q.correctAnswerContent||[]).length}`);
+          });
+        }
       }
       const ansToggle = document.getElementById('xxt-ans-toggle');
       if (ansToggle) ansToggle.classList.toggle('xxt-disabled', !hasCorrectAnswer);

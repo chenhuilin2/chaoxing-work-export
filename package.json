@@ -1,0 +1,31 @@
+{
+  "name": "chaoxing-work-export",
+  "version": "3.0.0",
+  "private": true,
+  "description": "TypeScript-based, maintainable userscript for extracting and exporting Chaoxing questions.",
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "clean": "node tools/clean.mjs",
+    "typecheck": "tsc -p tsconfig.typecheck.json --noEmit",
+    "build": "node tools/build.mjs",
+    "test": "npm run test:unit",
+    "lint": "eslint src --max-warnings=0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "validate": "npm run typecheck && npm run test:unit && npm run build",
+    "test:unit": "node tools/test.mjs",
+    "test:browser": "node tools/browser-smoke.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.23.0",
+    "eslint": "9.23.0",
+    "globals": "16.0.0",
+    "prettier": "3.5.3",
+    "typescript": "5.8.3",
+    "typescript-eslint": "8.29.0"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "module": "AMD",
+    "moduleResolution": "Node",
+    "rootDir": "src",
+    "outFile": ".tmp/chaoxing-work-export.amd.js",
+    "removeComments": false,
+    "noEmitOnError": true
+  },
+  "include": ["src/**/*.ts"]
+}

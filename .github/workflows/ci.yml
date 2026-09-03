@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --ignore-scripts --no-audit --no-fund
+      - run: npm run lint
+      - run: npm run validate
+      - run: node --check dist/chaoxing-work-export.user.js
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chaoxing-work-export-userscript
+          path: dist/*.js
+          if-no-files-found: error

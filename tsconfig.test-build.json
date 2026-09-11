@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "rootDir": "src",
+    "outDir": ".tmp/test/src",
+    "removeComments": true,
+    "noEmitOnError": true
+  },
+  "include": [
+    "src/domain/**/*.ts",
+    "src/exporters/legacy-bridge.ts",
+    "src/exporters/text-formatter.ts",
+    "src/exporters/markdown-formatter.ts",
+    "src/extractors/question-type.ts",
+    "src/extractors/rich-content.ts",
+    "src/utils/**/*.ts"
+  ]
+}

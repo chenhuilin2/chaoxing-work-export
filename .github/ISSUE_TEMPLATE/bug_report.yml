@@ -1,0 +1,45 @@
+name: 解析或导出问题
+about: 报告题目无法识别、字段缺失或文件生成异常
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: 请勿提交账号、Cookie、课程邀请码、真实学生信息或未授权题库。
+  - type: input
+    id: version
+    attributes:
+      label: 脚本版本
+      placeholder: 3.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: page
+    attributes:
+      label: 页面类型
+      options:
+        - 查看答案
+        - 做作业
+        - 章节测验
+        - 考试
+        - 多次提交在线练习
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期结果与实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: dom
+    attributes:
+      label: 脱敏 DOM 或控制台错误
+      description: 只粘贴能复现问题的最小片段。
+      render: html

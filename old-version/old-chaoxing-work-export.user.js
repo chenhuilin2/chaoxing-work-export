@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         超星学习通作业/考试一键提取导出word文档
 // @license      GPL-3.0
-// @version      2.0.1
+// @version      2.0.2
 // @description  一键提取学习通作业题目，支持富文本（图文混排），Word/TXT/MD 导出，答案/错题收集，题库导入格式，暗色模式，快捷键，iframe 提取
 // @author       huilin
 // @icon         http://pan-yz.chaoxing.com/favicon.ico
@@ -858,8 +858,10 @@
       }
     }
 
-    while (normalized[0] && normalized[0].type === 'break') normalized.shift();
-    while (normalized[normalized.length - 1] && normalized[normalized.length - 1].type === 'break') normalized.pop();
+    // 修剪首尾的换行与纯空白文本：尾部空白会挡住相邻换行，导致 Word 导出时题目与选项之间出现多余空行
+    const isTrimmable = (part) => !part || part.type === 'break' || (part.type === 'text' && !part.text.trim());
+    while (isTrimmable(normalized[0])) normalized.shift();
+    while (isTrimmable(normalized[normalized.length - 1])) normalized.pop();
     return normalized;
   }
 

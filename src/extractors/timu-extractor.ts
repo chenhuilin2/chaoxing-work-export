@@ -5,8 +5,8 @@ import { extractAnalysis, extractCorrectAnswer, extractUserAnswer } from './comm
 import type { ExtractorContext, QuestionExtractor } from './contracts';
 import { parseOptions } from './option-parser';
 import { createQuestion } from './question-factory';
+import { resolveQuestionStem } from './question-stem';
 import { detectQuestionType, inferQuestionType } from './question-type';
-import { extractRichContent, stripQuestionPrefix } from './rich-content';
 
 export class TiMuExtractor implements QuestionExtractor {
   readonly id = 'timu';
@@ -49,7 +49,6 @@ export class TiMuExtractor implements QuestionExtractor {
     context: ExtractorContext,
   ): Question | null {
     const title = container.querySelector('.Zy_TItle, .question-title') ?? container;
-    const stemElement = title.querySelector('.qtContent, .question-content, .mark_name');
     const type =
       detectQuestionType(
         textOf(title.querySelector('.newZy_TItle')),
@@ -60,11 +59,14 @@ export class TiMuExtractor implements QuestionExtractor {
       inferQuestionType(container);
     if (!type) return null;
 
+    // 题干经分层定位，避免学习通改版换掉题干类名后整题被丢弃
+    const stem = resolveQuestionStem(container, title);
+
     return createQuestion({
-      number: parseLeadingNumber(textOf(title.querySelector('i.fl')) || textOf(stemElement)),
+      number: parseLeadingNumber(textOf(title.querySelector('i.fl')) || stem.rawText),
       type,
       typeMeta: textOf(title.querySelector('.newZy_TItle')) || undefined,
-      stem: stripQuestionPrefix(extractRichContent(stemElement)),
+      stem: stem.content,
       options: parseOptions(container, [
         '.Zy_ulTop.qtDetail > li',
         '.Zy_ulTop > li',

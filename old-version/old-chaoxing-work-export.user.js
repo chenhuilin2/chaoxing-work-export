@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         超星学习通作业/考试一键提取导出word文档
+// @name         old - 超星学习通作业/考试一键提取导出word文档
 // @license      GPL-3.0
 // @version      2.0.2
 // @description  一键提取学习通作业题目，支持富文本（图文混排），Word/TXT/MD 导出，答案/错题收集，题库导入格式，暗色模式，快捷键，iframe 提取

@@ -5,8 +5,8 @@ import { extractAnalysis, extractCorrectAnswer, extractUserAnswer } from './comm
 import type { ExtractorContext, QuestionExtractor } from './contracts';
 import { parseOptions } from './option-parser';
 import { createQuestion } from './question-factory';
+import { resolveQuestionStem } from './question-stem';
 import { detectQuestionType, inferQuestionType } from './question-type';
-import { extractRichContent, stripQuestionPrefix } from './rich-content';
 
 export class QuestionLiExtractor implements QuestionExtractor {
   readonly id = 'question-li';
@@ -28,14 +28,12 @@ export class QuestionLiExtractor implements QuestionExtractor {
         ) ?? inferQuestionType(container);
       if (!type) return;
 
-      const stemElement = container.querySelector(
-        '.mark_name, .qtContent, .questionStem, .question-stem, .subject, [data-role="stem"]',
-      );
+      const stem = resolveQuestionStem(container);
       const question = createQuestion({
-        number: parseLeadingNumber(textOf(stemElement)),
+        number: parseLeadingNumber(stem.rawText),
         type,
         typeMeta: textOf(container.querySelector('.colorShallow, .question-type')) || undefined,
-        stem: stripQuestionPrefix(extractRichContent(stemElement)),
+        stem: stem.content,
         options: parseOptions(container, [
           '.answerBg',
           '.mark_letter > li',

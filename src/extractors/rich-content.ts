@@ -1,5 +1,6 @@
 import type { ImagePart, RichContent, RichPart, TextPart } from '../domain/question';
 import { normalizeWhitespace } from '../utils/text';
+import { decodeCxSecretText, parentElementOf } from './cxsecret-decoder';
 
 const BLOCK_TAGS = new Set([
   'P',
@@ -130,7 +131,12 @@ export function extractRichContent(element: Element | null): RichPart[] {
 
   const walk = (node: Node, style: TextStyle): void => {
     if (node.nodeType === Node.TEXT_NODE) {
-      parts.push({ type: 'text', text: node.nodeValue ?? '', ...style });
+      // 学习通对题干/选项做了字体反爬，取到的是混淆码位，这里按作用域还原
+      parts.push({
+        type: 'text',
+        text: decodeCxSecretText(node.nodeValue ?? '', parentElementOf(node)),
+        ...style,
+      });
       return;
     }
     if (!(node instanceof Element)) return;
@@ -175,7 +181,8 @@ export function extractRichContent(element: Element | null): RichPart[] {
       element.getAttribute('data-text'),
       element.getAttribute('data-value'),
     ].find((value) => Boolean(value?.trim()));
-    if (fallback) normalized = [{ type: 'text', text: fallback }];
+    // 选项文字在真实页面上同时存在于 aria-label，同样需要还原
+    if (fallback) normalized = [{ type: 'text', text: decodeCxSecretText(fallback, element) }];
   }
   return normalized;
 }

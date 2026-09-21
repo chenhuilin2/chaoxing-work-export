@@ -17,6 +17,13 @@ import { matchesShortcut } from '../utils/shortcut';
 import { humanizeError, sanitizeFilename } from '../utils/text';
 import type { ChapterExtractionService } from './chapter-extraction-service';
 import type { ExtractionService } from './extraction-service';
+import { QuestionTabGuard, TaskTabLocator } from './task-tab-locator';
+
+// 页面存在题目卡时等待题目加载的上限（切换任务卡后答题页还要 AJAX 渲染）
+const QUESTION_SETTLE_TIMEOUT_MS = 12_000;
+
+// 页面没有题目卡时不再空等：只留出页面自身渲染完成的时间（与原 4.5s 等待的容错度一致）
+const PAGE_IDLE_TIMEOUT_MS = 4_500;
 
 export class AppController {
   private currentResult: ExtractionResult | null = null;
@@ -46,6 +53,7 @@ export class AppController {
     private readonly chapterService: ChapterExtractionService,
     private readonly exportService: ExportService,
     private readonly frameBridge: FrameBridge,
+    private readonly taskTabs = new TaskTabLocator(),
     private readonly settingsRepository = new SettingsRepository(),
     private readonly historyRepository = new HistoryRepository(),
     private readonly downloadService = new DownloadService(),
@@ -97,20 +105,8 @@ export class AppController {
   private async extractCurrent(): Promise<void> {
     this.view.setBusy('extract', '正在识别当前页面和已加载的 iframe…');
     try {
-      const requestedAt = Date.now();
       this.frameBridge.requestRefresh();
-      let result = this.extractionService.extractAccessibleDocuments();
-      if (!result) {
-        result = await this.extractionService.waitForChangedResult({
-          afterTimestamp: requestedAt,
-          timeoutMs: 4_500,
-          intervalMs: 300,
-        });
-      }
-      if (!result || result.questions.length === 0) {
-        throw new Error('当前页面未识别到题目，请确认题目已经加载完成');
-      }
-      this.acceptResult(result);
+      this.acceptResult(await this.resolveCurrentResult());
     } catch (error) {
       this.logger.warn('Extraction failed', error);
       this.view.setStatus(humanizeError(error), 'error');
@@ -118,6 +114,33 @@ export class AppController {
       this.view.setBusy(null);
       this.refreshChapterAvailability();
     }
+  }
+
+  /**
+   * 取当前页面的题目。
+   *
+   * 默认停留在「视频/文档」卡时，题目 iframe 的真实地址还留在 `_src` 上，页面里没有题目 DOM：
+   * 此时采样等待并在需要时补切题目卡，题目一出现立即返回，而不是固定等满整段超时。
+   */
+  private async resolveCurrentResult(): Promise<ExtractionResult> {
+    const immediate = this.extractionService.extractAccessibleDocuments();
+    if (immediate && immediate.questions.length > 0) return immediate;
+
+    const guard = new QuestionTabGuard(this.taskTabs);
+    // 页面根本没有题目卡时，结构不会自己变出题目，只留出页面自身渲染的时间
+    const timeoutMs =
+      this.taskTabs.questionTabIndex() === null ? PAGE_IDLE_TIMEOUT_MS : QUESTION_SETTLE_TIMEOUT_MS;
+    const settled = await this.extractionService.settleQuestions({
+      timeoutMs,
+      repair: () => {
+        if (guard.ensure()) {
+          this.view.setStatus('已自动切换到题目所在任务卡，正在等待题目加载…', 'neutral');
+        }
+      },
+    });
+
+    if (!settled) throw new Error('当前页面未识别到题目，请确认题目已经加载完成');
+    return settled;
   }
 
   private openChapterDialog(): void {

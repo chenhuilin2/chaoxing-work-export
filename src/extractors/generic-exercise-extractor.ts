@@ -6,8 +6,8 @@ import { extractAnalysis, extractCorrectAnswer, extractUserAnswer } from './comm
 import type { ExtractorContext, QuestionExtractor } from './contracts';
 import { parseOptions } from './option-parser';
 import { createQuestion } from './question-factory';
+import { resolveQuestionStem } from './question-stem';
 import { detectQuestionType, inferQuestionType } from './question-type';
-import { extractRichContent, isRichContentEmpty, stripQuestionPrefix } from './rich-content';
 
 const CONTAINER_SELECTORS = [
   '[data-question-id]',
@@ -16,17 +16,6 @@ const CONTAINER_SELECTORS = [
   '.exercise-question',
   '.TiMu',
   '.questionLi',
-] as const;
-
-const STEM_SELECTORS = [
-  '[data-role="stem"]',
-  '.question-stem',
-  '.questionStem',
-  '.subject-title',
-  '.subject',
-  '.qtContent',
-  '.mark_name',
-  '.Zy_TItle .qtContent',
 ] as const;
 
 export class GenericExerciseExtractor implements QuestionExtractor {
@@ -52,23 +41,12 @@ export class GenericExerciseExtractor implements QuestionExtractor {
         ) ?? inferQuestionType(container);
       if (!type) continue;
 
-      let stemElement: Element | null = null;
-      for (const selector of STEM_SELECTORS) {
-        const candidate = container.querySelector(selector);
-        if (!candidate) continue;
-        const content = stripQuestionPrefix(extractRichContent(candidate));
-        if (!isRichContentEmpty(content)) {
-          stemElement = candidate;
-          break;
-        }
-      }
-      if (!stemElement) continue;
-
+      const stem = resolveQuestionStem(container);
       const question = createQuestion({
-        number: parseLeadingNumber(textOf(stemElement)),
+        number: parseLeadingNumber(stem.rawText),
         type,
         typeMeta: textOf(container.querySelector('.question-type, .colorShallow')) || undefined,
-        stem: stripQuestionPrefix(extractRichContent(stemElement)),
+        stem: stem.content,
         options: parseOptions(container, [
           '.answerBg',
           '.option-list > li',

@@ -13,8 +13,11 @@
     "src/exporters/legacy-bridge.ts",
     "src/exporters/text-formatter.ts",
     "src/exporters/markdown-formatter.ts",
-    "src/extractors/question-type.ts",
-    "src/extractors/rich-content.ts",
-    "src/utils/**/*.ts"
+    "src/extractors/**/*.ts",
+    "src/utils/**/*.ts",
+    "src/application/chapter-extraction-service.ts",
+    "src/application/chapter-locator.ts",
+    "src/application/extraction-service.ts",
+    "src/application/task-tab-locator.ts"
   ]
 }

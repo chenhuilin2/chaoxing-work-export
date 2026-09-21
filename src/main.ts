@@ -1,6 +1,8 @@
 import { AppController } from './application/app-controller';
 import { ChapterExtractionService } from './application/chapter-extraction-service';
+import { ChapterLocator } from './application/chapter-locator';
 import { ExtractionService } from './application/extraction-service';
+import { TaskTabLocator } from './application/task-tab-locator';
 import { ExportService } from './exporters/export-service';
 import { CompositeExtractor } from './extractors/composite-extractor';
 import { FrameAgent, FrameBridge } from './infrastructure/frame-bridge';
@@ -17,13 +19,16 @@ function inIframe(): boolean {
 function bootTopWindow(): void {
   const frameBridge = new FrameBridge();
   const extractionService = new ExtractionService(new CompositeExtractor(), frameBridge);
-  const chapterService = new ChapterExtractionService(extractionService);
+  // 章节切换与任务卡切换共用同一个定位器实例
+  const taskTabs = new TaskTabLocator();
+  const chapterService = new ChapterExtractionService(extractionService, new ChapterLocator(), taskTabs);
   const controller = new AppController(
     new PanelView(),
     extractionService,
     chapterService,
     new ExportService(),
     frameBridge,
+    taskTabs,
   );
   controller.start();
 }

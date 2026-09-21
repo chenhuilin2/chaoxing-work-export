@@ -5,8 +5,8 @@ import { extractAnalysis, extractCorrectAnswer, extractUserAnswer } from './comm
 import type { ExtractorContext, QuestionExtractor } from './contracts';
 import { parseOptions } from './option-parser';
 import { createQuestion } from './question-factory';
+import { resolveQuestionStem } from './question-stem';
 import { detectQuestionType } from './question-type';
-import { extractRichContent, stripQuestionPrefix } from './rich-content';
 
 export class MarkItemExtractor implements QuestionExtractor {
   readonly id = 'mark-item';
@@ -23,19 +23,18 @@ export class MarkItemExtractor implements QuestionExtractor {
       if (!sectionType) return;
 
       section.querySelectorAll<HTMLElement>('.questionLi').forEach((container) => {
-        const stemElement = container.querySelector('.qtContent, .mark_name, .question-stem');
         const type =
           detectQuestionType(
             container.getAttribute('typeName'),
             container.getAttribute('data-question-type'),
             textOf(container.querySelector('.colorShallow')),
           ) ?? sectionType;
-        const rawStem = extractRichContent(stemElement);
+        const stem = resolveQuestionStem(container);
         const question = createQuestion({
-          number: parseLeadingNumber(textOf(stemElement)),
+          number: parseLeadingNumber(stem.rawText),
           type,
           typeMeta: textOf(container.querySelector('.colorShallow')) || undefined,
-          stem: stripQuestionPrefix(rawStem),
+          stem: stem.content,
           options: parseOptions(container, [
             '.mark_letter > li',
             '.mark_letter li',

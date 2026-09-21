@@ -89,8 +89,12 @@ export function resolveImageUrl(image: HTMLImageElement): string {
 }
 
 export function extractBackgroundImages(element: Element): ImagePart[] {
-  if (!(element instanceof HTMLElement)) return [];
-  let background = element.style.backgroundImage;
+  // 不能按 instanceof HTMLElement 判定：顶层脚本跨层读取同源 iframe 文档时，
+  // 节点的构造器属于那个文档所在的 window，instanceof 会一律判 false；
+  // 改为按能力判断——能取到 style 的元素才可能有背景图
+  const style = (element as Partial<HTMLElement>).style;
+  if (!style) return [];
+  let background = style.backgroundImage;
   try {
     if (!background || background === 'none') {
       background = element.ownerDocument.defaultView?.getComputedStyle(element).backgroundImage ?? '';
@@ -125,6 +129,20 @@ const EMPTY_STYLE: TextStyle = {
   superScript: false,
 };
 
+/**
+ * 节点是否为元素。
+ *
+ * 这里不能用 `node instanceof Element`：脚本在顶层窗口运行时会把同源 iframe 的文档一并
+ * 遍历（`collectAccessibleDocuments`），而那些节点的构造器属于它们自己的 window，
+ * `instanceof` 会一律判 false —— 后果是整棵子树都读不出内容。题干若恰好落在容器的
+ * 直接文本节点上还能读到，选项文字却都嵌在 `<a>` / `<label>` / `<span>` 里，就会一条都
+ * 读不到，表现为「提取到题干、提取不到选项」（且题干里嵌套的题型标记会一起丢失）。
+ * nodeType 是各文档统一的常量，与节点属于哪个 window 无关，用它判定即可。
+ */
+function isElementNode(node: Node): node is Element {
+  return node.nodeType === Node.ELEMENT_NODE;
+}
+
 export function extractRichContent(element: Element | null): RichPart[] {
   if (!element) return [];
   const parts: RichPart[] = [];
@@ -139,7 +157,7 @@ export function extractRichContent(element: Element | null): RichPart[] {
       });
       return;
     }
-    if (!(node instanceof Element)) return;
+    if (!isElementNode(node)) return;
 
     const tag = node.tagName.toUpperCase();
     if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE'].includes(tag)) return;

@@ -20,6 +20,7 @@ import {
   formatWrongQuestionsMD,
 } from './markdown-formatter';
 import { generateWordBlob, WORD_MIME } from './word-exporter';
+import { planWordDocuments } from './word-plan';
 
 // 原版 getOutputText：根据选项生成输出文本
 // （打乱时题目和答案用打乱顺序重新生成，错题汇总始终用原始顺序）
@@ -93,32 +94,31 @@ export class ExportService {
       '',
     );
 
-    // Word 试卷导出（原版逻辑：题库导入必带答案并禁用打乱/错题；Word 暂不支持分章节，合并导出）
+    // Word 导出（原版规则：题库导入必带答案并禁用打乱/错题）
+    // 文件划分交给 word-plan：勾选「按章节拆分文件」时一章一个 .docx；
+    // 否则只产出一个文件，多章节时正文按「章节 → 题型」分节，不再把各章同题型混在一起。
     if (options.format === 'word') {
       const isBankImport = options.bankImport;
-      const doShuffle = !isBankImport && options.shuffle;
       const withWrong = !isBankImport && options.withWrong;
-      const activeResults = doShuffle
-        ? shuffleQuestions(legacy.results, legacy.typeOrder)
-        : legacy.results;
+      const plans = planWordDocuments(sourceResult, options);
+      const artifacts: ExportArtifact[] = [];
       window.__xxt_failed_image_count = 0;
-      const blob = await generateWordBlob(
-        activeResults,
-        legacy.typeOrder,
-        legacy.title,
-        isBankImport || options.withAnswers,
-        withWrong,
-        isBankImport,
-      );
-      const failedImages = window.__xxt_failed_image_count || 0;
-      return [
-        {
+      for (const plan of plans) {
+        const failedBefore = window.__xxt_failed_image_count || 0;
+        const blob = await generateWordBlob(plan.title, plan.sections, {
+          withAnswers: isBankImport || options.withAnswers,
+          withWrong,
+          bankImport: isBankImport,
+        });
+        artifacts.push({
           blob,
-          filename: `${baseFilename}.docx`,
+          filename: plan.filename,
           mimeType: WORD_MIME,
-          failedImages,
-        },
-      ];
+          // 图片计数是全局累加的，这里取本文件的增量
+          failedImages: (window.__xxt_failed_image_count || 0) - failedBefore,
+        });
+      }
+      return artifacts;
     }
 
     // TXT / MD 导出

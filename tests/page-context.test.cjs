@@ -29,7 +29,7 @@ test('学生学习页面：#prev_title 无 title 属性时回退到其正文', (
 });
 
 test('学生学习页面：真实 DOM 的 .prev_title 类名同样生效', () => {
-  // html/章节测验.html：<div class="prev_title" title="毛泽东思想的主要内容">
+  // html/章节练习完整页.html：<div class="prev_title" title="毛泽东思想的主要内容">
   const document = createDocument(
     '<div class="prev_title_pos"><div class="prev_title" title="毛泽东思想的主要内容">毛泽东思想的主要内容<span class="markTag"></span></div></div>',
   );

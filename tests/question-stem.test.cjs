@@ -91,3 +91,16 @@ test('没有任何题干线索时返回空结果而不抛错', () => {
   assert.deepEqual(stem.content, []);
   assert.equal(stem.rawText, '');
 });
+
+test('题号解析：带分隔符的前缀与裸数字都算题号，正文以数字开头则不算', () => {
+  const { parseLeadingNumber } = require('../.tmp/test/src/utils/dom.js');
+
+  assert.equal(parseLeadingNumber('1. 题干'), 1);
+  assert.equal(parseLeadingNumber('12、题干'), 12);
+  // 已批阅视图的题号节点 <i class="fl">1</i> 是裸数字，没有分隔符
+  assert.equal(parseLeadingNumber('1'), 1);
+  assert.equal(parseLeadingNumber(' 3 '), 3);
+  // 题干正文常以年份开头，不能把年份当成题号
+  assert.equal(parseLeadingNumber('2024 年发布的文件指出……'), undefined);
+  assert.equal(parseLeadingNumber('毛泽东思想活的灵魂'), undefined);
+});

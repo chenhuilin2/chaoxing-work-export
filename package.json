@@ -1,6 +1,6 @@
 {
   "name": "chaoxing-work-export",
-  "version": "3.0.0",
+  "version": "3.0.18",
   "private": true,
   "description": "TypeScript-based, maintainable userscript for extracting and exporting Chaoxing questions.",
   "license": "GPL-3.0-only",

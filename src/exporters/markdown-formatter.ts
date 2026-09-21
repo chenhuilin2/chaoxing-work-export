@@ -37,10 +37,8 @@ export function formatOutputMD(
     for (const q of questions) {
       globalNum++;
       output += `**${globalNum}.** ${formatRichForMD(questionContent(q))}\n\n`;
-      output += `**${globalNum}.** ${formatRichForMD(questionContent(q))}\n\n`;
       if (q.options && q.options.length > 0) {
         for (const opt of q.options) {
-          output += `- ${opt.letter}. ${formatRichForMD(optionContent(opt))}\n`;
           output += `- ${opt.letter}. ${formatRichForMD(optionContent(opt))}\n`;
         }
         output += '\n';
@@ -74,9 +72,7 @@ export function formatAnswersMD(
       globalNum++;
       const answer = formatRichForMD(answerContent(q)) || '（未找到答案）';
       if (qtype === '填空' && answer.includes('；')) {
-        const parts = answer
-          .split('；')
-          .map((p) => p.trim().replace(/^\(\d+\)\s*/, ''));
+        const parts = answer.split('；').map((p) => p.trim().replace(/^\(\d+\)\s*/, ''));
         output += `${globalNum}.  \n`;
         parts.forEach((part, i) => {
           output += `    (${i + 1}) ${part}  \n`;
@@ -120,7 +116,6 @@ export function formatWrongQuestionsMD(
     for (const q of questions) {
       globalNum++;
       if (!q.isWrong) continue;
-      output += `**${globalNum}.** ${formatRichForMD(questionContent(q))}\n\n`;
       output += `**${globalNum}.** ${formatRichForMD(questionContent(q))}\n\n`;
       output += `- 我的答案: ${q.myAnswer || '无'}\n`;
       output += `- 正确答案: ${formatRichForMD(answerContent(q)) || '（未找到答案）'}\n\n`;

@@ -42,6 +42,26 @@ function linkFrame(iframe, innerDocument) {
   return iframe;
 }
 
+/**
+ * 模拟「节点来自另一个 window」：脚本在顶层窗口运行时会把同源 iframe 的文档一并遍历，
+ * 而 iframe 里节点的构造器属于它们自己的 window，`节点 instanceof Element` 会判 false。
+ * 单文档快照（linkedom）复现不出这种差异，这里把全局构造器临时换成无关的类来还原现场。
+ */
+function withForeignConstructors(run) {
+  const savedElement = globalThis.Element;
+  const savedHTMLElement = globalThis.HTMLElement;
+  class ForeignElement {}
+  class ForeignHTMLElement {}
+  globalThis.Element = ForeignElement;
+  globalThis.HTMLElement = ForeignHTMLElement;
+  try {
+    return run();
+  } finally {
+    globalThis.Element = savedElement;
+    globalThis.HTMLElement = savedHTMLElement;
+  }
+}
+
 /** 用给定的 body 片段构造一个可解析的文档 */
 function createDocument(bodyHtml) {
   const { document } = parseHTML(
@@ -108,4 +128,5 @@ module.exports = {
   EXPECTED_STEM,
   useGlobalDocument,
   linkFrame,
+  withForeignConstructors,
 };

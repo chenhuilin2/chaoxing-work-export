@@ -109,6 +109,8 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 .cwe-header-main { min-width: 0; flex: 1; }
 .cwe-title { margin: 0; font-size: 15px; font-weight: 800; line-height: 1.3; }
+/* 版本号常驻标题右侧：用户报问题时不必再问「装的是哪一版」 */
+.cwe-version { margin-left: 6px; color: var(--cwe-text-muted); font-size: 10.5px; font-weight: 600; }
 .cwe-header-actions { display: flex; gap: 5px; }
 .cwe-icon-button {
   width: 31px;
@@ -128,7 +130,10 @@ button { -webkit-tap-highlight-color: transparent; }
 .cwe-scroll::-webkit-scrollbar { width: 6px; }
 .cwe-scroll::-webkit-scrollbar-thumb { background: var(--cwe-border); border-radius: 99px; }
 
+.cwe-status-row { display: flex; align-items: center; gap: 8px; }
 .cwe-status {
+  flex: 1;
+  min-width: 0;
   min-height: 38px;
   display: flex;
   align-items: center;
@@ -234,6 +239,8 @@ button { -webkit-tap-highlight-color: transparent; }
   transition: transform 150ms ease;
 }
 .cwe-modal-backdrop[data-open="true"] .cwe-modal { transform: translateY(0) scale(1); }
+/* 章节选择弹窗的条目与标题都更长，单独放宽 */
+.cwe-modal-wide { width: min(560px, calc(100vw - 28px)); }
 .cwe-modal-header { display: flex; align-items: center; gap: 8px; padding: 14px 15px; border-bottom: 1px solid var(--cwe-border); }
 .cwe-modal-title { flex: 1; margin: 0; font-size: 14px; font-weight: 800; }
 .cwe-modal-body { overflow: auto; padding: 14px 15px; }
@@ -241,8 +248,11 @@ button { -webkit-tap-highlight-color: transparent; }
 
 .cwe-setting-row { display: grid; grid-template-columns: 118px 1fr; align-items: center; gap: 10px; margin-bottom: 12px; }
 .cwe-setting-row:last-child { margin-bottom: 0; }
+/* 快捷键设置已移到开关组下方，用分隔线与上方区分 */
+.cwe-setting-row-split { margin-top: 2px; padding-top: 13px; border-top: 1px solid var(--cwe-border); }
 .cwe-setting-label { color: var(--cwe-text-secondary); font-size: 11.5px; font-weight: 700; }
-.cwe-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--cwe-border); color: var(--cwe-text-secondary); font-size: 11.5px; }
+/* 开关组行距放宽：原 9px 太挤，与后面的设置行连成一片；标签字重与上方设置行一致 */
+.cwe-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 0; border-top: 1px solid var(--cwe-border); color: var(--cwe-text-secondary); font-size: 11.5px; font-weight: 700; }
 
 .cwe-history-modal {
   display: flex;
@@ -360,7 +370,12 @@ button { -webkit-tap-highlight-color: transparent; }
 .cwe-mini-button:hover { border-color: var(--cwe-primary); color: var(--cwe-primary); }
 .cwe-mini-button-danger:hover { border-color: var(--cwe-danger); color: var(--cwe-danger); }
 
-.cwe-chapter-toolbar { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
+.cwe-chapter-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+/* 全选框取代原来的两个按钮，右侧跟选择状态文本 */
+.cwe-chapter-all { display: inline-flex; align-items: center; gap: 7px; color: var(--cwe-text-secondary); cursor: pointer; font-size: 11.5px; font-weight: 700; }
+.cwe-chapter-all input { width: 15px; height: 15px; margin: 0; accent-color: var(--cwe-primary); }
+.cwe-chapter-all:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
+.cwe-chapter-status { color: var(--cwe-text-muted); font-size: 11px; }
 .cwe-chapter-list { display: grid; gap: 6px; max-height: 390px; overflow: auto; }
 .cwe-chapter { display: flex; align-items: flex-start; gap: 8px; padding: 9px; border: 1px solid var(--cwe-border); border-radius: 9px; background: var(--cwe-bg-soft); color: var(--cwe-text-secondary); cursor: pointer; font-size: 11.5px; line-height: 1.4; }
 .cwe-chapter:hover { border-color: var(--cwe-primary); }

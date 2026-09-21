@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const { createDocument } = require('./dom-setup.cjs');
 const { ChapterLocator } = require('../.tmp/test/src/application/chapter-locator.js');
 
-/** 与 html/章节测验.html 一致的目录树：一个分组标题 + 两个章节 */
+/** 与 html/章节练习完整页.html 一致的目录树：一个分组标题 + 两个章节 */
 const CATALOG_HTML = `
 <div id="coursetree">
   <div class="posCatalog_list">

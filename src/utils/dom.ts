@@ -13,10 +13,7 @@ export function firstMatch<E extends Element>(
   return null;
 }
 
-export function allMatches<E extends Element>(
-  root: ParentNode,
-  selectors: readonly string[],
-): E[] {
+export function allMatches<E extends Element>(root: ParentNode, selectors: readonly string[]): E[] {
   const output: E[] = [];
   const seen = new Set<E>();
   for (const selector of selectors) {
@@ -31,7 +28,10 @@ export function allMatches<E extends Element>(
 }
 
 export function parseLeadingNumber(value: string): number | undefined {
-  const match = value.match(/^\s*(\d+)\s*[.、．]/u);
+  // 两种写法都算题号：「1. 题干」这种带分隔符的前缀，以及 <i class="fl">1</i> 这种只含题号的节点。
+  // 已批阅视图的题号节点是裸数字（无「.」「、」），只认前者会让该模板的题号整列为 undefined。
+  // 不能放宽成「行首数字」：题干正文常以年份开头（「2024 年…」），那样会把年份当成题号。
+  const match = value.match(/^\s*(\d+)\s*[.、．]/u) ?? value.match(/^\s*(\d{1,3})\s*$/u);
   if (!match?.[1]) return undefined;
   const parsed = Number.parseInt(match[1], 10);
   return Number.isFinite(parsed) ? parsed : undefined;

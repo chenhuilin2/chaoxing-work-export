@@ -2,6 +2,7 @@ import type { ExportOptions } from '../domain/export-options';
 import type { HistoryEntry } from '../domain/history';
 import type { ExtractionResult } from '../domain/question';
 import type { ExportPreferences, PanelPosition, UserSettings } from '../domain/settings';
+import { buildExtractionDiagnostics } from '../extractors/dom-diagnostics';
 import type { ExportService } from '../exporters/export-service';
 import { ClipboardService } from '../infrastructure/clipboard-service';
 import { DownloadService } from '../infrastructure/download-service';
@@ -11,12 +12,13 @@ import { Logger } from '../infrastructure/logger';
 import { SettingsRepository } from '../infrastructure/settings-repository';
 import type { PanelView } from '../ui/panel-view';
 import { debounce } from '../utils/async';
+import { APP_VERSION } from '../app-config';
 import { stableHash } from '../utils/hash';
 import { isEditableTarget } from '../utils/dom';
 import { matchesShortcut } from '../utils/shortcut';
 import { humanizeError, sanitizeFilename } from '../utils/text';
 import type { ChapterExtractionService } from './chapter-extraction-service';
-import type { ExtractionService } from './extraction-service';
+import { incompleteChoiceCount, type ExtractionService } from './extraction-service';
 import { QuestionTabGuard, TaskTabLocator } from './task-tab-locator';
 
 // 页面存在题目卡时等待题目加载的上限（切换任务卡后答题页还要 AJAX 渲染）
@@ -71,6 +73,7 @@ export class AppController {
       onExtractChapters: (indexes) => void this.extractChapters(indexes),
       onDownload: () => void this.downloadCurrent(),
       onCopy: () => void this.copyCurrent(),
+      onDiagnose: () => void this.copyDiagnostics(),
       onPreferencesChange: (preferences) => this.savePreferences(preferences),
       onSettingsSave: (settings) => this.saveSettings(settings),
       onHistoryRestore: (id) => this.restoreHistory(id),
@@ -120,11 +123,16 @@ export class AppController {
    * 取当前页面的题目。
    *
    * 默认停留在「视频/文档」卡时，题目 iframe 的真实地址还留在 `_src` 上，页面里没有题目 DOM：
-   * 此时采样等待并在需要时补切题目卡，题目一出现立即返回，而不是固定等满整段超时。
+   * 此时采样等待并在需要时补切题目卡，避免固定等满整段超时。
+   *
+   * 已经取到题目时也不是立刻收工：答题页会分几批渲染，中途取到的结果可能只有题干、
+   * 选项还没补上，这类「选择题缺选项」的结果要交给采样等待补齐。
    */
   private async resolveCurrentResult(): Promise<ExtractionResult> {
     const immediate = this.extractionService.extractAccessibleDocuments();
-    if (immediate && immediate.questions.length > 0) return immediate;
+    if (immediate && immediate.questions.length > 0 && incompleteChoiceCount(immediate) === 0) {
+      return immediate;
+    }
 
     const guard = new QuestionTabGuard(this.taskTabs);
     // 页面根本没有题目卡时，结构不会自己变出题目，只留出页面自身渲染的时间
@@ -194,22 +202,24 @@ export class AppController {
       const failedImages = artifacts.reduce((total, artifact) => total + (artifact.failedImages ?? 0), 0);
       this.addHistory(this.currentResult, options);
       // 下载状态提示与主脚本保持一致
+      const warnMsg = failedImages > 0 ? `（${failedImages} 张图片加载失败）` : '';
       let message: string;
-      if (options.format === 'word') {
-        const warnMsg = failedImages > 0 ? `（${failedImages} 张图片加载失败）` : '';
+      if (artifacts.length > 1) {
+        // 勾选「按章节拆分文件」时，各种格式都是一章一个文件
+        message = `已下载 ${artifacts.length} 个章节文件`;
+      } else if (options.format === 'word') {
         const withAnswers = options.bankImport || options.withAnswers;
         const withWrong = !options.bankImport && options.withWrong;
-        message =
-          (options.bankImport
-            ? '题库导入格式已下载'
-            : 'Word 试卷' + (withAnswers ? '（含答案）' : '') + (withWrong ? '（含错题）' : '') + '已下载') +
-          warnMsg;
-      } else if (artifacts.length > 1) {
-        message = `已下载 ${artifacts.length} 个章节文件`;
+        message = options.bankImport
+          ? '题库导入格式已下载'
+          : 'Word 试卷' +
+            (withAnswers ? '（含答案）' : '') +
+            (withWrong ? '（含错题）' : '') +
+            '已下载';
       } else {
         message = '文件已下载';
       }
-      this.view.setStatus(message, failedImages > 0 ? 'warning' : 'success');
+      this.view.setStatus(message + warnMsg, failedImages > 0 ? 'warning' : 'success');
     } catch (error) {
       this.logger.error('Export failed', error);
       const prefix = options.format === 'word' ? 'Word 导出失败: ' : '导出失败：';
@@ -239,6 +249,24 @@ export class AppController {
       this.view.setStatus(`复制失败：${humanizeError(error)}`, 'error');
     } finally {
       this.view.setBusy(null);
+    }
+  }
+
+  /**
+   * 复制提取诊断信息。
+   *
+   * 「提取到题干、提取不到选项」在离线快照上复现不出来（快照是渲染完成后的 DOM），
+   * 所以把当前页面各层文档的题目/选项结构一次性复制出来，供定位成因：
+   * 选择器没命中、选项在题目容器之外，还是选项节点本身就解析为空。
+   */
+  private async copyDiagnostics(): Promise<void> {
+    try {
+      await this.clipboardService.writeText(
+        buildExtractionDiagnostics({ version: APP_VERSION }),
+      );
+      this.view.setStatus('诊断信息已复制到剪贴板，直接粘贴发给维护者即可', 'success');
+    } catch (error) {
+      this.view.setStatus(`复制诊断失败：${humanizeError(error)}`, 'error');
     }
   }
 

@@ -9,11 +9,14 @@ import { resolvePageTitle } from '../extractors/page-context';
 import { delay } from '../utils/async';
 import { stableHash } from '../utils/hash';
 import { ChapterLocator, type ChapterDescriptor } from './chapter-locator';
-import type { ExtractionService } from './extraction-service';
+import { incompleteChoiceCount, type ExtractionService } from './extraction-service';
 import { QuestionTabGuard, TaskTabLocator } from './task-tab-locator';
 
 // 单章等待上限：章节切换后要依次等卡片页重建 → 任务卡切换 → 答题页加载
 const CHAPTER_SETTLE_TIMEOUT_MS = 20_000;
+
+// 页面已停在目标章节、没有任务卡可切时，等待「选项中补上来」的额外上限
+const PARTIAL_FILL_TIMEOUT_MS = 5_000;
 
 // 收尾还原任务卡前的短暂等待：章节页面正在重建，任务卡栏属于新页面
 const RESTORE_TAB_DELAY_MS = 400;
@@ -156,9 +159,15 @@ export class ChapterExtractionService {
     readonly hasTaskTabs: boolean;
     readonly previousFingerprint: string;
   }): Promise<ExtractionResult | null> {
-    // 章节未切换且页面没有任务卡栏：结构不会自己变出题目，只取一次即可
+    // 章节未切换且页面没有任务卡栏：结构不会自己变出题目，只取一次即可。
+    // 例外是「选择题只渲染了题干、选项还没补上」，这种中间态要短暂等待补齐
     if (options.alreadyActive && !options.hasTaskTabs) {
-      return this.extractionService.extract();
+      const immediate = this.extractionService.extract();
+      if (!immediate || incompleteChoiceCount(immediate) === 0) return immediate;
+      return (
+        (await this.extractionService.settleQuestions({ timeoutMs: PARTIAL_FILL_TIMEOUT_MS })) ??
+        immediate
+      );
     }
 
     const guard = new QuestionTabGuard(this.taskTabs);

@@ -1,13 +1,10 @@
 // Word 文档生成：以下函数逐行移植自主脚本 chaoxing-work-export.user.js，保持输出完全一致。
+// 多章节支持：正文按 sections 顺序渲染，sections 多于一个时每章前插章节标题并分页
+//（按章节拆分成多个文件时，每份文档只有一个 section，因此不插章节标题）。
 import type { RichContent } from '../domain/question';
-import {
-  type LegacyResults,
-  type LegacyTypeKey,
-  answerContent,
-  formatRichForText,
-  optionContent,
-  questionContent,
-} from './legacy-bridge';
+import { answerContent, formatRichForText, optionContent, questionContent } from './legacy-bridge';
+import type { LegacyTypeKey } from './legacy-bridge';
+import type { WordSection } from './word-plan';
 
 // 图片加载失败的全局计数（与主脚本一致，通过 window 传递）
 declare global {
@@ -16,8 +13,14 @@ declare global {
   }
 }
 
-export const WORD_MIME =
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+export const WORD_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+/** Word 渲染开关（文件划分由 word-plan.ts 决定） */
+export interface WordRenderOptions {
+  readonly withAnswers: boolean;
+  readonly withWrong: boolean;
+  readonly bankImport: boolean;
+}
 
 // ==================== Word 文档生成（富文本） ====================
 async function fetchImageAsset(
@@ -103,8 +106,7 @@ async function buildRichRuns(content: RichContent, prefix = ''): Promise<any[]> 
         );
       }
     } else if (part.type === 'image') {
-      if (runs.length > 0)
-        runs.push(new TextRun({ text: ' ', font: 'Microsoft YaHei', size: 22 }));
+      if (runs.length > 0) runs.push(new TextRun({ text: ' ', font: 'Microsoft YaHei', size: 22 }));
       const imgRun = await buildImageRun(part.url);
       if (imgRun) runs.push(imgRun);
       runs.push(new TextRun({ text: ' ', font: 'Microsoft YaHei', size: 22 }));
@@ -116,11 +118,7 @@ async function buildRichRuns(content: RichContent, prefix = ''): Promise<any[]> 
 }
 
 // 将富文本内容构建为带段后间距的 Paragraph 数组（Word 导出用）
-async function buildRichParagraphs(
-  content: RichContent,
-  prefix = '',
-  spacing = 0,
-): Promise<any[]> {
+async function buildRichParagraphs(content: RichContent, prefix = '', spacing = 0): Promise<any[]> {
   const { Paragraph } = docx;
   const runs = await buildRichRuns(content, prefix);
   return [
@@ -144,71 +142,136 @@ function cleanAnswerText(text: string): string {
     .trim();
 }
 
-export async function generateWordBlob(
-  results: LegacyResults,
-  typeOrder: readonly LegacyTypeKey[],
-  title: string,
-  withAnswers: boolean,
-  withWrong: boolean,
-  bankImport: boolean,
-): Promise<Blob> {
-  const { Document, Packer, Paragraph, TextRun, AlignmentType, convertMillimetersToTwip, HeadingLevel, PageBreak } =
-    docx;
+const FONT = 'Microsoft YaHei';
+// 题型大题头字号（半磅）：比章节标题小一号（章节标题 28 = 14pt → 题型 24 = 12pt），与正文 22 拉开层次
+const SIZE_TYPE_HEADER = 24;
+const COLOR = {
+  title: '1F2937',
+  muted: '6B7280',
+  border: 'E5E7EB',
+  answer: '00A870',
+  wrong: 'DC2626',
+  analysisBg: 'F7F9FC',
+  type: '64748B',
+};
 
-  const FONT = 'Microsoft YaHei';
-  const COLOR = {
-    title: '1F2937',
-    muted: '6B7280',
-    border: 'E5E7EB',
-    answer: '00A870',
-    wrong: 'DC2626',
-    analysisBg: 'F7F9FC',
-    type: '64748B',
-  };
+// 题型名（不含序号）：序号由 buildTypeHeaders 按本章实际出现的题型顺序现场排
+const TYPE_NAMES: Record<string, string> = {
+  单选: '单项选择题',
+  多选: '多项选择题',
+  填空: '填空题',
+  判断: '判断题',
+  简答: '简答题',
+};
 
-  const typeHeaders: Record<string, string> = {
-    单选: '一、单项选择题',
-    多选: '二、多项选择题',
-    填空: '三、填空题',
-    判断: '四、判断题',
-    简答: '五、简答题',
-  };
+const CN_NUMERALS = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'] as const;
 
-  const bankTypeLabels: Record<string, string> = {
-    单选: '【单选题】',
-    多选: '【多选题】',
-    填空: '【填空题】',
-    判断: '【判断题】',
-    简答: '【简答题】',
-  };
+/** 大题头的中文序号（超出表长时退化为阿拉伯数字） */
+function ordinalLabel(index: number): string {
+  return CN_NUMERALS[index] ?? String(index + 1);
+}
 
-  // 题库导入格式：生成学习通智能导入兼容的 Word 文档
-  if (bankImport) {
-    const children: any[] = [];
-    children.push(
-      new Paragraph({
-        children: [
-          new TextRun({
-            text: title || '题库导入',
-            font: FONT,
-            size: 32,
-            bold: true,
-            color: COLOR.title,
-          }),
-        ],
-        heading: HeadingLevel.HEADING_1,
-        alignment: AlignmentType.CENTER,
-        spacing: { after: 240 },
-      }),
-    );
+/**
+ * 本章的「题型 → 大题头」映射。
+ *
+ * 序号按本章**实际有题目**的题型从「一」重新排：此前用全局固定的题型序号，
+ * 某章没有单选题时多选题就会顶着「二、多项选择题」的跳号。
+ */
+function buildTypeHeaders(section: WordSection): Map<LegacyTypeKey, string> {
+  const headers = new Map<LegacyTypeKey, string>();
+  let ordinal = 0;
+  for (const qtype of section.typeOrder) {
+    const questions = section.results[qtype];
+    if (!questions || questions.length === 0) continue;
+    headers.set(qtype, `${ordinalLabel(ordinal)}、${TYPE_NAMES[qtype] ?? qtype}`);
+    ordinal += 1;
+  }
+  return headers;
+}
 
-    let qNum = 0;
+const BANK_TYPE_LABELS: Record<string, string> = {
+  单选: '【单选题】',
+  多选: '【多选题】',
+  填空: '【填空题】',
+  判断: '【判断题】',
+  简答: '【简答题】',
+};
 
-    for (const qtype of typeOrder) {
-      const questions = results[qtype];
+/** 题库导入格式的页面设置：A4 纵向，页边距比试卷略宽 */
+function bankImportSections(children: any[]): any[] {
+  const { convertMillimetersToTwip } = docx;
+  return [
+    {
+      properties: {
+        page: {
+          size: { width: 11906, height: 16838 },
+          margin: {
+            top: convertMillimetersToTwip(20),
+            bottom: convertMillimetersToTwip(20),
+            left: convertMillimetersToTwip(25),
+            right: convertMillimetersToTwip(25),
+          },
+        },
+      },
+      children,
+    },
+  ];
+}
+
+/** 试卷正文的章节大标题：多章节单文件时用来分节（除首章外先分页） */
+function chapterHeadingParagraph(text: string, pageBreak: boolean): any[] {
+  const { Paragraph, TextRun, AlignmentType, HeadingLevel, PageBreak } = docx;
+  const parts: any[] = [];
+  if (pageBreak) parts.push(new Paragraph({ children: [new PageBreak()], spacing: { after: 0 } }));
+  parts.push(
+    new Paragraph({
+      children: [new TextRun({ text, font: FONT, size: 28, bold: true, color: COLOR.title })],
+      heading: HeadingLevel.HEADING_2,
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 240, after: 200 },
+    }),
+  );
+  return parts;
+}
+
+/** 答案页 / 错题页里的章节小标题（不强制分页，与上级大标题区分） */
+function chapterLabelParagraph(text: string): any {
+  const { Paragraph, TextRun } = docx;
+  return new Paragraph({
+    children: [new TextRun({ text, font: FONT, size: 26, bold: true, color: COLOR.title })],
+    spacing: { before: 200, after: 120 },
+  });
+}
+
+/** 题库导入格式：生成学习通智能导入兼容的 Word 文档 */
+async function buildBankImportBlob(title: string, sections: readonly WordSection[]): Promise<Blob> {
+  const { Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel } = docx;
+  const children: any[] = [];
+  children.push(
+    new Paragraph({
+      children: [
+        new TextRun({
+          text: title || '题库导入',
+          font: FONT,
+          size: 32,
+          bold: true,
+          color: COLOR.title,
+        }),
+      ],
+      heading: HeadingLevel.HEADING_1,
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 240 },
+    }),
+  );
+
+  let qNum = 0;
+
+  for (const section of sections) {
+    for (const qtype of section.typeOrder) {
+      const questions = section.results[qtype];
       if (!questions || questions.length === 0) continue;
 
-      const prefix = bankTypeLabels[qtype];
+      const prefix = BANK_TYPE_LABELS[qtype];
 
       for (const q of questions) {
         qNum++;
@@ -283,40 +346,35 @@ export async function generateWordBlob(
         }
       }
     }
-
-    const doc = new Document({
-      styles: {
-        paragraphStyles: [
-          {
-            id: 'Normal',
-            name: 'Normal',
-            run: { font: FONT, size: 22, color: COLOR.title },
-            paragraph: { spacing: { line: 330, lineRule: 'auto' } },
-          },
-        ],
-      },
-      sections: [
-        {
-          properties: {
-            page: {
-              size: { width: 11906, height: 16838 },
-              margin: {
-                top: convertMillimetersToTwip(20),
-                bottom: convertMillimetersToTwip(20),
-                left: convertMillimetersToTwip(25),
-                right: convertMillimetersToTwip(25),
-              },
-            },
-          },
-          children,
-        },
-      ],
-    });
-
-    return await Packer.toBlob(doc);
   }
 
+  const doc = new Document({
+    styles: {
+      paragraphStyles: [
+        {
+          id: 'Normal',
+          name: 'Normal',
+          run: { font: FONT, size: 22, color: COLOR.title },
+          paragraph: { spacing: { line: 330, lineRule: 'auto' } },
+        },
+      ],
+    },
+    sections: bankImportSections(children),
+  });
+
+  return await Packer.toBlob(doc);
+}
+
+/**
+ * 试卷正文：标题 + 统计摘要 + 各章节题目（按题型分组）。
+ *
+ * title 是文档大标题（多章节时是「课程 - N 个章节」这类聚合标题），
+ * 与 section.title（章节名，多章节时作为正文里的分节标题）不是一回事。
+ */
+async function buildPaperBody(title: string, sections: readonly WordSection[]): Promise<any[]> {
+  const { Paragraph, TextRun, AlignmentType, HeadingLevel } = docx;
   const children: any[] = [];
+  const multiSection = sections.length > 1;
 
   // 标题
   children.push(
@@ -330,14 +388,16 @@ export async function generateWordBlob(
     }),
   );
 
-  // 统计摘要
+  // 统计摘要（多章节时跨章节汇总）
   let totalQ = 0;
   const typeCount: Record<string, number> = {};
-  for (const qtype of typeOrder) {
-    const questions = results[qtype];
-    if (!questions || questions.length === 0) continue;
-    typeCount[qtype] = questions.length;
-    totalQ += questions.length;
+  for (const section of sections) {
+    for (const qtype of section.typeOrder) {
+      const questions = section.results[qtype];
+      if (!questions || questions.length === 0) continue;
+      typeCount[qtype] = (typeCount[qtype] ?? 0) + questions.length;
+      totalQ += questions.length;
+    }
   }
   const summary = Object.entries(typeCount)
     .map(([type, count]) => `${type} ${count} 道`)
@@ -355,171 +415,199 @@ export async function generateWordBlob(
     }),
   );
 
-  let qNum = 0;
+  for (let sectionIndex = 0; sectionIndex < sections.length; sectionIndex += 1) {
+    const section = sections[sectionIndex];
+    if (!section) continue;
+    // 多章节单文件：每章前插章节大标题
+    if (multiSection) children.push(...chapterHeadingParagraph(section.title, sectionIndex > 0));
 
-  for (const qtype of typeOrder) {
-    const questions = results[qtype];
-    if (!questions || questions.length === 0) continue;
+    // 题号与题型序号都按章重新开始：每章从第 1 题、从「一、」数起
+    const typeHeaders = buildTypeHeaders(section);
+    let qNum = 0;
 
-    const header = typeHeaders[qtype] || qtype;
-    const count = questions.length;
+    for (const qtype of section.typeOrder) {
+      const questions = section.results[qtype];
+      if (!questions || questions.length === 0) continue;
 
-    children.push(
-      new Paragraph({
-        children: [
-          new TextRun({
-            text: `${header}（本大题共${count}小题）`,
-            font: FONT,
-            size: 28,
-            bold: true,
-            color: COLOR.title,
-          }),
-        ],
-        spacing: { after: 120 },
-      }),
-    );
+      const header = typeHeaders.get(qtype) ?? TYPE_NAMES[qtype] ?? qtype;
+      const count = questions.length;
 
-    for (const q of questions) {
-      qNum++;
-      const stemContent = questionContent(q);
-      const typeMetaRun = q.typeMeta
-        ? new TextRun({ text: `${q.typeMeta} `, font: FONT, size: 22, color: COLOR.type })
-        : null;
+      children.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: `${header}（本大题共${count}小题）`,
+              font: FONT,
+              size: SIZE_TYPE_HEADER,
+              bold: true,
+              color: COLOR.title,
+            }),
+          ],
+          spacing: { after: 120 },
+        }),
+      );
 
-      if (qtype === '单选' || qtype === '多选') {
-        // 题目块
-        children.push(
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: `${qNum}. `,
-                font: FONT,
-                size: 22,
-                bold: true,
-                color: COLOR.title,
-              }),
-              ...(typeMetaRun ? [typeMetaRun] : []),
-              ...(await buildRichRuns(stemContent)),
-            ],
-            spacing: { before: 220, after: 100 },
-          }),
-        );
-        const options = q.options || [];
-        if (options.length > 0) {
-          // 单选/多选选项统一一列多行排列
-          for (const opt of options) {
+      for (const q of questions) {
+        qNum++;
+        const stemContent = questionContent(q);
+        const typeMetaRun = q.typeMeta
+          ? new TextRun({ text: `${q.typeMeta} `, font: FONT, size: 22, color: COLOR.type })
+          : null;
+
+        if (qtype === '单选' || qtype === '多选') {
+          // 题目块
+          children.push(
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: `${qNum}. `,
+                  font: FONT,
+                  size: 22,
+                  bold: true,
+                  color: COLOR.title,
+                }),
+                ...(typeMetaRun ? [typeMetaRun] : []),
+                ...(await buildRichRuns(stemContent)),
+              ],
+              spacing: { before: 220, after: 100 },
+            }),
+          );
+          const options = q.options || [];
+          if (options.length > 0) {
+            // 单选/多选选项统一一列多行排列
+            for (const opt of options) {
+              children.push(
+                new Paragraph({
+                  children: await buildRichRuns(optionContent(opt), `${opt.letter}. `),
+                  indent: { left: 620, hanging: 220 },
+                  spacing: { before: 30, after: 30 },
+                }),
+              );
+            }
+            children.push(new Paragraph({ children: [], spacing: { after: 80 } }));
+          }
+        } else if (qtype === '填空') {
+          children.push(
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: `${qNum}. `,
+                  font: FONT,
+                  size: 22,
+                  bold: true,
+                  color: COLOR.title,
+                }),
+                ...(await buildRichRuns(stemContent)),
+              ],
+              spacing: { before: 220, after: 40 },
+            }),
+          );
+          children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
+        } else if (qtype === '判断') {
+          const judgeRuns = await buildRichRuns(stemContent);
+          judgeRuns.push(new TextRun({ text: '（  ）', font: FONT, size: 22 }));
+          children.push(
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: `${qNum}. `,
+                  font: FONT,
+                  size: 22,
+                  bold: true,
+                  color: COLOR.title,
+                }),
+                ...(typeMetaRun ? [typeMetaRun] : []),
+                ...judgeRuns,
+              ],
+              spacing: { before: 220, after: 120 },
+            }),
+          );
+        } else if (qtype === '简答') {
+          children.push(
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: `${qNum}. `,
+                  font: FONT,
+                  size: 22,
+                  bold: true,
+                  color: COLOR.title,
+                }),
+                ...(typeMetaRun ? [typeMetaRun] : []),
+                ...(await buildRichRuns(stemContent)),
+              ],
+              spacing: { before: 220, after: 40 },
+            }),
+          );
+          for (let i = 0; i < 8; i++) {
             children.push(
               new Paragraph({
-                children: await buildRichRuns(optionContent(opt), `${opt.letter}. `),
-                indent: { left: 620, hanging: 220 },
-                spacing: { before: 30, after: 30 },
+                children: [new TextRun({ text: '', font: FONT, size: 22 })],
+                spacing: { after: 40 },
               }),
             );
           }
           children.push(new Paragraph({ children: [], spacing: { after: 80 } }));
         }
-      } else if (qtype === '填空') {
-        children.push(
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: `${qNum}. `,
-                font: FONT,
-                size: 22,
-                bold: true,
-                color: COLOR.title,
-              }),
-              ...(await buildRichRuns(stemContent)),
-            ],
-            spacing: { before: 220, after: 40 },
-          }),
-        );
-        children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
-      } else if (qtype === '判断') {
-        const judgeRuns = await buildRichRuns(stemContent);
-        judgeRuns.push(new TextRun({ text: '（  ）', font: FONT, size: 22 }));
-        children.push(
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: `${qNum}. `,
-                font: FONT,
-                size: 22,
-                bold: true,
-                color: COLOR.title,
-              }),
-              ...(typeMetaRun ? [typeMetaRun] : []),
-              ...judgeRuns,
-            ],
-            spacing: { before: 220, after: 120 },
-          }),
-        );
-      } else if (qtype === '简答') {
-        children.push(
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: `${qNum}. `,
-                font: FONT,
-                size: 22,
-                bold: true,
-                color: COLOR.title,
-              }),
-              ...(typeMetaRun ? [typeMetaRun] : []),
-              ...(await buildRichRuns(stemContent)),
-            ],
-            spacing: { before: 220, after: 40 },
-          }),
-        );
-        for (let i = 0; i < 8; i++) {
-          children.push(
-            new Paragraph({
-              children: [new TextRun({ text: '', font: FONT, size: 22 })],
-              spacing: { after: 40 },
-            }),
-          );
-        }
-        children.push(new Paragraph({ children: [], spacing: { after: 80 } }));
       }
-    }
-    // 判断题与简答题之间补一行空行
-    if (qtype === '判断') {
-      children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
+      // 判断题与简答题之间补一行空行
+      if (qtype === '判断') {
+        children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
+      }
     }
   }
 
-  // 答案页
-  if (withAnswers) {
-    children.push(
-      new Paragraph({
-        children: [new PageBreak()],
-        spacing: { after: 0 },
-      }),
-    );
-    children.push(
-      new Paragraph({
-        children: [
-          new TextRun({
-            text: '正确答案',
-            font: FONT,
-            size: 32,
-            bold: true,
-            color: COLOR.title,
-          }),
-        ],
-        heading: HeadingLevel.HEADING_1,
-        alignment: AlignmentType.CENTER,
-        spacing: { before: 200, after: 240 },
-      }),
-    );
+  return children;
+}
+
+/** 答案页：分页后按章节、按题型列出正确答案 */
+async function appendAnswerPage(children: any[], sections: readonly WordSection[]): Promise<void> {
+  const { Paragraph, TextRun, AlignmentType, HeadingLevel, PageBreak } = docx;
+  const multiSection = sections.length > 1;
+
+  children.push(
+    new Paragraph({
+      children: [new PageBreak()],
+      spacing: { after: 0 },
+    }),
+  );
+  children.push(
+    new Paragraph({
+      children: [
+        new TextRun({
+          text: '正确答案',
+          font: FONT,
+          size: 32,
+          bold: true,
+          color: COLOR.title,
+        }),
+      ],
+      heading: HeadingLevel.HEADING_1,
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 200, after: 240 },
+    }),
+  );
+
+  for (const section of sections) {
+    if (multiSection) children.push(chapterLabelParagraph(section.title));
+    // 答案编号与题目页一致：按章重新从 1 数起，题型序号同样按本章重排
+    const typeHeaders = buildTypeHeaders(section);
     let aNum = 0;
-    for (const qtype of typeOrder) {
-      const questions = results[qtype];
+    for (const qtype of section.typeOrder) {
+      const questions = section.results[qtype];
       if (!questions || questions.length === 0) continue;
-      const header = typeHeaders[qtype] || qtype;
+      const header = typeHeaders.get(qtype) ?? TYPE_NAMES[qtype] ?? qtype;
       children.push(
         new Paragraph({
-          children: [new TextRun({ text: header, font: FONT, size: 28, bold: true, color: COLOR.title })],
+          children: [
+            new TextRun({
+              text: header,
+              font: FONT,
+              size: SIZE_TYPE_HEADER,
+              bold: true,
+              color: COLOR.title,
+            }),
+          ],
           spacing: { after: 120 },
         }),
       );
@@ -549,7 +637,10 @@ export async function generateWordBlob(
         }
         children.push(
           new Paragraph({
-            children: [new TextRun({ text: `${aNum}. `, font: FONT, size: 22, color: COLOR.title }), ...answerRuns],
+            children: [
+              new TextRun({ text: `${aNum}. `, font: FONT, size: 22, color: COLOR.title }),
+              ...answerRuns,
+            ],
             spacing: { before: 90, after: 70 },
             indent: { left: 420 },
           }),
@@ -561,156 +652,188 @@ export async function generateWordBlob(
       }
     }
   }
+}
 
-  // 错题汇总（Word 试卷）
-  if (withWrong) {
-    let hasWrong = false;
-    for (const qtype of typeOrder) {
-      const questions = results[qtype];
-      if (!questions) continue;
+/** 错题汇总页：分页后列出答错的题目、我的答案与正确答案 */
+async function appendWrongPage(children: any[], sections: readonly WordSection[]): Promise<void> {
+  const { Paragraph, TextRun, AlignmentType, HeadingLevel, PageBreak } = docx;
+  const multiSection = sections.length > 1;
+
+  const hasAnyWrong = sections.some((section) =>
+    section.typeOrder.some((qtype) =>
+      (section.results[qtype] ?? []).some((question) => question.isWrong),
+    ),
+  );
+  if (!hasAnyWrong) return;
+
+  children.push(
+    new Paragraph({
+      children: [new PageBreak()],
+      spacing: { after: 0 },
+    }),
+  );
+  children.push(
+    new Paragraph({
+      children: [
+        new TextRun({
+          text: '错题汇总',
+          font: FONT,
+          size: 32,
+          bold: true,
+          color: COLOR.title,
+        }),
+      ],
+      heading: HeadingLevel.HEADING_1,
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 200, after: 240 },
+    }),
+  );
+
+  for (const section of sections) {
+    if (multiSection) {
+      // 该章一道错题都没有时，连章节标题一起省掉（与「无错题的题型不出现」一致）
+      const sectionHasWrong = section.typeOrder.some((qtype) =>
+        (section.results[qtype] ?? []).some((question) => question.isWrong),
+      );
+      const before = children.length;
+      if (sectionHasWrong) children.push(chapterLabelParagraph(section.title));
+      // 章节标题先占位，若无错题则回滚（保持既有「空section不出标题」的写法简单）
+      if (!sectionHasWrong && children.length !== before) children.length = before;
+    }
+
+    // 错题题号要能对上题目页，因此同样按章重新从 1 数起
+    const typeHeaders = buildTypeHeaders(section);
+    let globalNum = 0;
+    for (const qtype of section.typeOrder) {
+      const questions = section.results[qtype];
+      if (!questions || questions.length === 0) continue;
+      if (qtype === '简答') {
+        globalNum += questions.length;
+        continue;
+      }
+
+      const header = typeHeaders.get(qtype) ?? TYPE_NAMES[qtype] ?? qtype;
+      let sectionHasWrong = false;
       for (const q of questions) {
         if (q.isWrong) {
-          hasWrong = true;
+          sectionHasWrong = true;
           break;
         }
       }
-      if (hasWrong) break;
-    }
+      if (!sectionHasWrong) {
+        globalNum += questions.length;
+        continue;
+      }
 
-    if (hasWrong) {
-      children.push(
-        new Paragraph({
-          children: [new PageBreak()],
-          spacing: { after: 0 },
-        }),
-      );
       children.push(
         new Paragraph({
           children: [
             new TextRun({
-              text: '错题汇总',
+              text: header,
               font: FONT,
-              size: 32,
+              size: SIZE_TYPE_HEADER,
               bold: true,
               color: COLOR.title,
             }),
           ],
-          heading: HeadingLevel.HEADING_1,
-          alignment: AlignmentType.CENTER,
-          spacing: { before: 200, after: 240 },
+          spacing: { after: 120 },
         }),
       );
 
-      let globalNum = 0;
-      for (const qtype of typeOrder) {
-        const questions = results[qtype];
-        if (!questions || questions.length === 0) continue;
-        if (qtype === '简答') {
-          globalNum += questions.length;
-          continue;
-        }
-
-        const header = typeHeaders[qtype] || qtype;
-        let sectionHasWrong = false;
-        for (const q of questions) {
-          if (q.isWrong) {
-            sectionHasWrong = true;
-            break;
+      for (const q of questions) {
+        globalNum++;
+        if (!q.isWrong) continue;
+        children.push(
+          new Paragraph({
+            children: await buildRichRuns(questionContent(q), `${globalNum}. `),
+            spacing: { before: 160, after: 40 },
+          }),
+        );
+        const options = q.options || [];
+        if (options.length > 0) {
+          for (const opt of options) {
+            children.push(
+              new Paragraph({
+                children: await buildRichRuns(optionContent(opt), `${opt.letter}. `),
+                indent: { left: 620, hanging: 220 },
+                spacing: { before: 30, after: 30 },
+              }),
+            );
           }
         }
-        if (!sectionHasWrong) {
-          globalNum += questions.length;
-          continue;
-        }
-
         children.push(
           new Paragraph({
             children: [
-              new TextRun({ text: header, font: FONT, size: 28, bold: true, color: COLOR.title }),
+              new TextRun({
+                text: `我的答案: ${q.myAnswer || '无'}`,
+                font: FONT,
+                size: 22,
+                color: COLOR.wrong,
+              }),
             ],
-            spacing: { after: 120 },
+            spacing: { before: 60, after: 40 },
+            indent: { left: 420 },
           }),
         );
-
-        for (const q of questions) {
-          globalNum++;
-          if (!q.isWrong) continue;
-          children.push(
-            new Paragraph({
-              children: await buildRichRuns(questionContent(q), `${globalNum}. `),
-              spacing: { before: 160, after: 40 },
-            }),
-          );
-          const options = q.options || [];
-          if (options.length > 0) {
-            for (const opt of options) {
-              children.push(
-                new Paragraph({
-                  children: await buildRichRuns(optionContent(opt), `${opt.letter}. `),
-                  indent: { left: 620, hanging: 220 },
-                  spacing: { before: 30, after: 30 },
-                }),
-              );
-            }
+        const answerContentArr = answerContent(q);
+        const cleanedContent = answerContentArr.map((part) => {
+          if (part.type === 'text') {
+            return { ...part, text: cleanAnswerText(part.text) };
           }
-          children.push(
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: `我的答案: ${q.myAnswer || '无'}`,
-                  font: FONT,
-                  size: 22,
-                  color: COLOR.wrong,
-                }),
-              ],
-              spacing: { before: 60, after: 40 },
-              indent: { left: 420 },
-            }),
+          return part;
+        });
+        const correctRuns = await buildRichRuns(cleanedContent);
+        if (correctRuns.length === 0) {
+          correctRuns.push(
+            new TextRun({ text: '（未找到答案）', font: FONT, size: 22, color: COLOR.muted }),
           );
-          const answerContentArr = answerContent(q);
-          const cleanedContent = answerContentArr.map((part) => {
-            if (part.type === 'text') {
-              return { ...part, text: cleanAnswerText(part.text) };
-            }
-            return part;
+        } else {
+          correctRuns.forEach((run) => {
+            if (run.font) run.font = FONT;
+            run.size = 22;
+            run.bold = true;
+            run.color = COLOR.answer;
           });
-          const correctRuns = await buildRichRuns(cleanedContent);
-          if (correctRuns.length === 0) {
-            correctRuns.push(
-              new TextRun({ text: '（未找到答案）', font: FONT, size: 22, color: COLOR.muted }),
-            );
-          } else {
-            correctRuns.forEach((run) => {
-              if (run.font) run.font = FONT;
-              run.size = 22;
-              run.bold = true;
-              run.color = COLOR.answer;
-            });
-          }
-          children.push(
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: '正确答案：',
-                  font: FONT,
-                  size: 22,
-                  bold: true,
-                  color: COLOR.answer,
-                }),
-                ...correctRuns,
-              ],
-              spacing: { before: 40, after: 120 },
-              indent: { left: 420 },
-            }),
-          );
-          // 每道题之间空一行
-          children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
         }
-        // 每个类别之间空一行
+        children.push(
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: '正确答案：',
+                font: FONT,
+                size: 22,
+                bold: true,
+                color: COLOR.answer,
+              }),
+              ...correctRuns,
+            ],
+            spacing: { before: 40, after: 120 },
+            indent: { left: 420 },
+          }),
+        );
+        // 每道题之间空一行
         children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
       }
+      // 每个类别之间空一行
+      children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
     }
   }
+}
+
+export async function generateWordBlob(
+  title: string,
+  sections: readonly WordSection[],
+  options: WordRenderOptions,
+): Promise<Blob> {
+  const { Document, Packer } = docx;
+
+  if (options.bankImport) {
+    return await buildBankImportBlob(title, sections);
+  }
+
+  const children = await buildPaperBody(title, sections);
+  if (options.withAnswers) await appendAnswerPage(children, sections);
+  if (options.withWrong) await appendWrongPage(children, sections);
 
   const doc = new Document({
     styles: {

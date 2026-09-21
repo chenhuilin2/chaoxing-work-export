@@ -64,9 +64,6 @@ const fixture = `<!doctype html>
         const answers = shadow.querySelector('[data-option="withAnswers"]');
         answers.checked = true;
         answers.dispatchEvent(new Event('change', { bubbles: true }));
-        const analysis = shadow.querySelector('[data-option="includeAnalysis"]');
-        analysis.checked = true;
-        analysis.dispatchEvent(new Event('change', { bubbles: true }));
         shadow.querySelector('[data-action="copy"]').click();
         const copied = await waitFor(() => window.__copied.includes('HTTP 默认使用哪个端口'));
         if (!copied || !window.__copied.includes('HTTP 的默认端口是 80')) throw new Error('Copy formatter failed');

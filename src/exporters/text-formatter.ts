@@ -34,10 +34,8 @@ export function formatOutput(results: LegacyResults, typeOrder: readonly LegacyT
     for (const q of questions) {
       globalNum++;
       output += `${globalNum}. ${formatRichForText(questionContent(q))}\n`;
-      output += `${globalNum}. ${formatRichForText(questionContent(q))}\n`;
       if (q.options && q.options.length > 0) {
         for (const opt of q.options) {
-          output += `${opt.letter}. ${formatRichForText(optionContent(opt))}\n`;
           output += `${opt.letter}. ${formatRichForText(optionContent(opt))}\n`;
         }
       }
@@ -76,9 +74,7 @@ export function formatAnswersTXT(
       globalNum++;
       const answer = formatRichForText(answerContent(q)) || '（未找到答案）';
       if (qtype === '填空' && answer.includes('；')) {
-        const parts = answer
-          .split('；')
-          .map((p) => p.trim().replace(/^\(\d+\)\s*/, ''));
+        const parts = answer.split('；').map((p) => p.trim().replace(/^\(\d+\)\s*/, ''));
         output += `${globalNum}. \n`;
         parts.forEach((part, i) => {
           output += `(${i + 1}) ${part}\n`;
@@ -127,7 +123,6 @@ export function formatWrongQuestionsTXT(
       globalNum++;
       if (!q.isWrong) continue;
       const typeLabel = qtype === '填空' ? '填空题' : '题目';
-      output += `${globalNum}. (${typeLabel})${formatRichForText(questionContent(q))}\n`;
       output += `${globalNum}. (${typeLabel})${formatRichForText(questionContent(q))}\n`;
       output += `   我的答案: ${q.myAnswer || '无'}\n`;
       output += `   正确答案: ${formatRichForText(answerContent(q)) || '（未找到答案）'}\n\n`;

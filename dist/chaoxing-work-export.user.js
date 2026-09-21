@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         超星学习通作业/考试一键提取导出 Word 文档
 // @namespace    https://github.com/chenhuilin2/chaoxing-work-export
-// @version      3.0.0
+// @version      3.0.18
 // @description  TypeScript 重构版：提取学习通作业与考试题目，支持富文本、答案解析、错题、章节批量提取及 Word/TXT/Markdown 导出
 // @author       huilin and contributors
 // @license      GPL-3.0-only
@@ -74,7 +74,7 @@
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.UI_HOST_ID = exports.APP_VERSION = exports.APP_NAME = void 0;
     exports.APP_NAME = 'Chaoxing Work Export';
-    exports.APP_VERSION = '3.0.0';
+    exports.APP_VERSION = '3.0.18';
     exports.UI_HOST_ID = 'chaoxing-work-export-root';
 });
 define("domain/export-options", ["require", "exports"], function (require, exports) {
@@ -185,7 +185,6 @@ define("domain/settings", ["require", "exports"], function (require, exports) {
             format: 'word',
             withAnswers: false,
             withWrong: false,
-            includeAnalysis: true,
             shuffle: false,
             bankImport: false,
             splitByChapter: false,
@@ -193,1316 +192,9 @@ define("domain/settings", ["require", "exports"], function (require, exports) {
         enableDrag: false,
         rememberPanelPosition: true,
         panelPosition: null,
-        autoExtractOnLoad: false,
+        // 默认打开：进入作业/考试/章节练习页即自动提取一次（用户可在设置里关掉）
+        autoExtractOnLoad: true,
     };
-});
-define("exporters/legacy-bridge", ["require", "exports"], function (require, exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.emptyLegacyResults = emptyLegacyResults;
-    exports.hasRichContent = hasRichContent;
-    exports.normalizeRichContent = normalizeRichContent;
-    exports.richContentToText = richContentToText;
-    exports.questionContent = questionContent;
-    exports.optionContent = optionContent;
-    exports.answerContent = answerContent;
-    exports.escapeMarkdownAlt = escapeMarkdownAlt;
-    exports.escapeMarkdownUrl = escapeMarkdownUrl;
-    exports.formatRichForText = formatRichForText;
-    exports.formatRichForMD = formatRichForMD;
-    exports.richTextOnly = richTextOnly;
-    exports.shuffleQuestions = shuffleQuestions;
-    exports.toLegacyResult = toLegacyResult;
-    exports.toLegacyChapter = toLegacyChapter;
-    // QuestionType → 原版中文题型键映射
-    const TYPE_KEY_MAP = {
-        'single-choice': '单选',
-        'multiple-choice': '多选',
-        'fill-blank': '填空',
-        'true-false': '判断',
-        'short-answer': '简答',
-    };
-    // 创建原版结构的空题目集合（五种题型各一个空数组）
-    function emptyLegacyResults() {
-        return { '单选': [], '多选': [], '填空': [], '判断': [], '简答': [] };
-    }
-    // ==================== 原版富文本辅助函数（逐行移植） ====================
-    // 判断富文本是否有实质内容（文本或图片）
-    function hasRichContent(content) {
-        return (content || []).some((part) => part.type === 'image' || (part.type === 'text' && part.text.trim().length > 0));
-    }
-    // 规范化富文本数组：合并相邻文本节点、去首尾空行、压缩空白
-    function normalizeRichContent(parts) {
-        const normalized = [];
-        const pushText = (part) => {
-            if (!part.text)
-                return;
-            const value = part.text.replace(/\u00a0/g, ' ').replace(/[ \t\r\f]+/g, ' ');
-            if (!value)
-                return;
-            const last = normalized[normalized.length - 1];
-            // 合并相邻文本，保留第一个 part 的格式属性
-            if (last && last.type === 'text') {
-                normalized[normalized.length - 1] = { ...last, text: last.text + value };
-            }
-            else {
-                normalized.push({
-                    type: 'text',
-                    text: value,
-                    bold: part.bold,
-                    italic: part.italic,
-                    subScript: part.subScript,
-                    superScript: part.superScript,
-                });
-            }
-        };
-        const pushBreak = () => {
-            const last = normalized[normalized.length - 1];
-            if (!last || last.type !== 'break')
-                normalized.push({ type: 'break' });
-        };
-        for (const part of parts || []) {
-            if (!part)
-                continue;
-            if (part.type === 'text') {
-                pushText(part);
-            }
-            else if (part.type === 'image' && part.url) {
-                normalized.push(part);
-            }
-            else if (part.type === 'break') {
-                pushBreak();
-            }
-        }
-        // 修剪首尾的换行与纯空白文本：尾部空白会挡住相邻换行，导致 Word 导出时题目与选项之间出现多余空行
-        const isTrimmable = (part) => {
-            if (!part)
-                return false;
-            return part.type === 'break' || (part.type === 'text' && !part.text.trim());
-        };
-        while (isTrimmable(normalized[0]))
-            normalized.shift();
-        while (isTrimmable(normalized[normalized.length - 1]))
-            normalized.pop();
-        return normalized;
-    }
-    // 将富文本数组转为纯文本，图片通过回调格式化
-    function richContentToText(content, imageFormatter) {
-        let text = '';
-        for (const part of content || []) {
-            if (part.type === 'text')
-                text += part.text;
-            else if (part.type === 'image')
-                text += imageFormatter ? imageFormatter(part.url, part) : '';
-            else if (part.type === 'break')
-                text += '\n';
-        }
-        return text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
-    }
-    // 适配器：兼容新旧数据格式，统一返回富文本数组
-    function questionContent(q) {
-        if (hasRichContent(q.stemContent))
-            return q.stemContent;
-        const parts = q.stem ? [{ type: 'text', text: q.stem }] : [];
-        if (q.images && q.images.length) {
-            q.images.forEach((url) => parts.push({ type: 'break' }, { type: 'image', url, alt: '' }));
-        }
-        return normalizeRichContent(parts);
-    }
-    function optionContent(opt) {
-        if (hasRichContent(opt.content))
-            return opt.content;
-        return opt.text ? [{ type: 'text', text: opt.text }] : [];
-    }
-    function answerContent(q) {
-        if (hasRichContent(q.correctAnswerContent))
-            return q.correctAnswerContent;
-        return q.correctAnswer ? [{ type: 'text', text: q.correctAnswer }] : [];
-    }
-    // Markdown URL 转义，防止特殊字符破坏图片语法
-    function escapeMarkdownAlt(text) {
-        return (text || '图片').replace(/[[\]\n\r]/g, ' ').trim() || '图片';
-    }
-    function escapeMarkdownUrl(url) {
-        // 编码 URL 中的特殊字符，防止破坏 Markdown 图片语法，保留已编码部分
-        return (url || '').replace(/[()\\]/g, (ch) => '%' + ch.charCodeAt(0).toString(16).toUpperCase());
-    }
-    // 富文本格式化：TXT/MD 分别处理
-    function formatRichForText(content) {
-        return richContentToText(content, (url) => `\n[图片: ${url}]\n`);
-    }
-    function formatRichForMD(content) {
-        return richContentToText(content, (url, part) => `\n![${escapeMarkdownAlt(part.alt)}](${escapeMarkdownUrl(url)})\n`);
-    }
-    // 富文本转纯文本（忽略图片）
-    function richTextOnly(content) {
-        return richContentToText(content || [], () => '').replace(/\s+/g, ' ').trim();
-    }
-    // Fisher-Yates 洗牌算法，同类型题目内部打乱
-    function shuffleQuestions(results, typeOrder) {
-        const shuffled = emptyLegacyResults();
-        for (const qtype of typeOrder) {
-            const arr = [...(results[qtype] || [])];
-            for (let i = arr.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                // Fisher-Yates 交换（noUncheckedIndexedAccess 下需显式判空）
-                const left = arr[i];
-                const right = arr[j];
-                if (left && right) {
-                    arr[i] = right;
-                    arr[j] = left;
-                }
-            }
-            shuffled[qtype] = arr;
-        }
-        return shuffled;
-    }
-    // ==================== 领域模型 → 原版结构转换 ====================
-    // 将 TS 领域模型的单题转换为原版题目结构
-    function toLegacyQuestion(question) {
-        return {
-            stem: formatRichForText(question.stem),
-            stemContent: question.stem,
-            typeMeta: question.typeMeta,
-            options: question.options.map((option) => ({
-                letter: option.key,
-                text: richTextOnly(option.content),
-                content: option.content,
-            })),
-            correctAnswer: richContentToText(question.correctAnswer, () => '')
-                .replace(/\s+/g, ' ')
-                .trim(),
-            correctAnswerContent: question.correctAnswer,
-            myAnswer: richTextOnly(question.userAnswer),
-            isWrong: question.isWrong,
-        };
-    }
-    // 将 TS 领域模型结果转换为原版提取数据结构（全部题目按题型合并）
-    function toLegacyResult(result) {
-        const results = emptyLegacyResults();
-        for (const question of result.questions) {
-            results[TYPE_KEY_MAP[question.type]].push(toLegacyQuestion(question));
-        }
-        const typeOrder = result.typeOrder.map((type) => TYPE_KEY_MAP[type]);
-        return {
-            title: result.title,
-            results,
-            typeOrder,
-            wrongCount: result.statistics.wrong,
-            hasMyAnswer: result.statistics.withUserAnswer > 0,
-            hasCorrectAnswer: result.statistics.withCorrectAnswer > 0,
-        };
-    }
-    // 将 TS 章节数据转换为原版分章节数据结构
-    function toLegacyChapter(chapter) {
-        const results = emptyLegacyResults();
-        for (const question of chapter.questions) {
-            results[TYPE_KEY_MAP[question.type]].push(toLegacyQuestion(question));
-        }
-        const typeOrder = chapter.typeOrder.map((type) => TYPE_KEY_MAP[type]);
-        return {
-            title: chapter.title,
-            results,
-            typeOrder,
-            wrongCount: chapter.statistics.wrong,
-            hasMyAnswer: chapter.statistics.withUserAnswer > 0,
-            hasCorrectAnswer: chapter.statistics.withCorrectAnswer > 0,
-        };
-    }
-});
-define("exporters/text-formatter", ["require", "exports", "exporters/legacy-bridge"], function (require, exports, legacy_bridge_1) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.formatOutput = formatOutput;
-    exports.formatAnswersTXT = formatAnswersTXT;
-    exports.formatOutputWithAnswers = formatOutputWithAnswers;
-    exports.formatWrongQuestionsTXT = formatWrongQuestionsTXT;
-    // ==================== TXT 格式化（富文本） ====================
-    function formatOutput(results, typeOrder) {
-        const typeLabels = {
-            单选: '单选题',
-            多选: '多选题',
-            填空: '填空题',
-            判断: '判断题',
-            简答: '简答题',
-        };
-        const typeNumbers = ['一', '二', '三', '四', '五', '六'];
-        let output = '';
-        let globalNum = 0;
-        let sectionIdx = 0;
-        for (const qtype of typeOrder) {
-            const questions = results[qtype];
-            if (!questions || questions.length === 0)
-                continue;
-            const label = typeLabels[qtype] ?? qtype;
-            const num = typeNumbers[sectionIdx] || sectionIdx + 1;
-            output += `${num}. ${label}（共${questions.length}题）\n`;
-            for (const q of questions) {
-                globalNum++;
-                output += `${globalNum}. ${(0, legacy_bridge_1.formatRichForText)((0, legacy_bridge_1.questionContent)(q))}\n`;
-                output += `${globalNum}. ${(0, legacy_bridge_1.formatRichForText)((0, legacy_bridge_1.questionContent)(q))}\n`;
-                if (q.options && q.options.length > 0) {
-                    for (const opt of q.options) {
-                        output += `${opt.letter}. ${(0, legacy_bridge_1.formatRichForText)((0, legacy_bridge_1.optionContent)(opt))}\n`;
-                        output += `${opt.letter}. ${(0, legacy_bridge_1.formatRichForText)((0, legacy_bridge_1.optionContent)(opt))}\n`;
-                    }
-                }
-                output += '\n';
-            }
-            sectionIdx++;
-        }
-        return output.trim();
-    }
-    function formatAnswersTXT(results, typeOrder) {
-        const typeLabels = {
-            单选: '单选题',
-            多选: '多选题',
-            填空: '填空题',
-            判断: '判断题',
-            简答: '简答题',
-        };
-        const typeNumbers = ['一', '二', '三', '四', '五', '六'];
-        let output = '';
-        let globalNum = 0;
-        let sectionIdx = 0;
-        for (const qtype of typeOrder) {
-            const questions = results[qtype];
-            if (!questions || questions.length === 0)
-                continue;
-            const num = typeNumbers[sectionIdx] || sectionIdx + 1;
-            output += `${num}、${typeLabels[qtype] ?? qtype}\n\n`;
-            sectionIdx++;
-            for (const q of questions) {
-                globalNum++;
-                const answer = (0, legacy_bridge_1.formatRichForText)((0, legacy_bridge_1.answerContent)(q)) || '（未找到答案）';
-                if (qtype === '填空' && answer.includes('；')) {
-                    const parts = answer
-                        .split('；')
-                        .map((p) => p.trim().replace(/^\(\d+\)\s*/, ''));
-                    output += `${globalNum}. \n`;
-                    parts.forEach((part, i) => {
-                        output += `(${i + 1}) ${part}\n`;
-                    });
-                    output += '\n';
-                }
-                else {
-                    output += `${globalNum}. ${answer}\n\n`;
-                }
-            }
-        }
-        return output.trim();
-    }
-    function formatOutputWithAnswers(results, typeOrder) {
-        let output = formatOutput(results, typeOrder);
-        output += '\n\n\n';
-        output += '========================================\n';
-        output += '              答案汇总\n';
-        output += '========================================\n\n';
-        output += formatAnswersTXT(results, typeOrder);
-        return output.trim();
-    }
-    function formatWrongQuestionsTXT(results, typeOrder) {
-        let output = '';
-        output += '\n\n\n';
-        output += '========================================\n';
-        output += '              错题汇总\n';
-        output += '========================================\n\n';
-        let globalNum = 0;
-        for (const qtype of typeOrder) {
-            const questions = results[qtype];
-            if (!questions || questions.length === 0)
-                continue;
-            if (qtype === '简答') {
-                globalNum += questions.length;
-                continue;
-            }
-            for (const q of questions) {
-                globalNum++;
-                if (!q.isWrong)
-                    continue;
-                const typeLabel = qtype === '填空' ? '填空题' : '题目';
-                output += `${globalNum}. (${typeLabel})${(0, legacy_bridge_1.formatRichForText)((0, legacy_bridge_1.questionContent)(q))}\n`;
-                output += `${globalNum}. (${typeLabel})${(0, legacy_bridge_1.formatRichForText)((0, legacy_bridge_1.questionContent)(q))}\n`;
-                output += `   我的答案: ${q.myAnswer || '无'}\n`;
-                output += `   正确答案: ${(0, legacy_bridge_1.formatRichForText)((0, legacy_bridge_1.answerContent)(q)) || '（未找到答案）'}\n\n`;
-            }
-        }
-        return output.replace(/\n+$/, '');
-    }
-});
-define("exporters/markdown-formatter", ["require", "exports", "exporters/legacy-bridge"], function (require, exports, legacy_bridge_2) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.formatOutputMD = formatOutputMD;
-    exports.formatAnswersMD = formatAnswersMD;
-    exports.formatOutputWithAnswersMD = formatOutputWithAnswersMD;
-    exports.formatWrongQuestionsMD = formatWrongQuestionsMD;
-    // ==================== Markdown 格式化（富文本） ====================
-    function formatOutputMD(results, typeOrder) {
-        const typeLabels = {
-            单选: '单选题',
-            多选: '多选题',
-            填空: '填空题',
-            判断: '判断题',
-            简答: '简答题',
-        };
-        const typeNumbers = ['一', '二', '三', '四', '五', '六'];
-        let output = '';
-        let globalNum = 0;
-        let sectionIdx = 0;
-        for (const qtype of typeOrder) {
-            const questions = results[qtype];
-            if (!questions || questions.length === 0)
-                continue;
-            const label = typeLabels[qtype] ?? qtype;
-            const num = typeNumbers[sectionIdx] || sectionIdx + 1;
-            output += `### ${num}、${label}（共${questions.length}题）\n\n`;
-            for (const q of questions) {
-                globalNum++;
-                output += `**${globalNum}.** ${(0, legacy_bridge_2.formatRichForMD)((0, legacy_bridge_2.questionContent)(q))}\n\n`;
-                output += `**${globalNum}.** ${(0, legacy_bridge_2.formatRichForMD)((0, legacy_bridge_2.questionContent)(q))}\n\n`;
-                if (q.options && q.options.length > 0) {
-                    for (const opt of q.options) {
-                        output += `- ${opt.letter}. ${(0, legacy_bridge_2.formatRichForMD)((0, legacy_bridge_2.optionContent)(opt))}\n`;
-                        output += `- ${opt.letter}. ${(0, legacy_bridge_2.formatRichForMD)((0, legacy_bridge_2.optionContent)(opt))}\n`;
-                    }
-                    output += '\n';
-                }
-                else {
-                    output += '\n';
-                }
-            }
-            sectionIdx++;
-        }
-        return output.trim();
-    }
-    function formatAnswersMD(results, typeOrder) {
-        let output = '';
-        let globalNum = 0;
-        for (const qtype of typeOrder) {
-            const questions = results[qtype];
-            if (!questions || questions.length === 0)
-                continue;
-            const typeLabels = {
-                单选: '单选题',
-                多选: '多选题',
-                填空: '填空题',
-                判断: '判断题',
-                简答: '简答题',
-            };
-            output += `**${typeLabels[qtype] ?? qtype}**\n\n`;
-            for (const q of questions) {
-                globalNum++;
-                const answer = (0, legacy_bridge_2.formatRichForMD)((0, legacy_bridge_2.answerContent)(q)) || '（未找到答案）';
-                if (qtype === '填空' && answer.includes('；')) {
-                    const parts = answer
-                        .split('；')
-                        .map((p) => p.trim().replace(/^\(\d+\)\s*/, ''));
-                    output += `${globalNum}.  \n`;
-                    parts.forEach((part, i) => {
-                        output += `    (${i + 1}) ${part}  \n`;
-                    });
-                    output += '\n';
-                }
-                else {
-                    output += `${globalNum}. ${answer}  \n`;
-                }
-            }
-            output += '\n';
-        }
-        return output.trim();
-    }
-    function formatOutputWithAnswersMD(results, typeOrder) {
-        let output = formatOutputMD(results, typeOrder);
-        output += '\n\n---\n\n';
-        output += '## 答案汇总\n\n';
-        output += formatAnswersMD(results, typeOrder);
-        return output.trim();
-    }
-    function formatWrongQuestionsMD(results, typeOrder) {
-        let output = '\n\n\n---\n\n';
-        output += '## 错题汇总\n\n';
-        let globalNum = 0;
-        for (const qtype of typeOrder) {
-            const questions = results[qtype];
-            if (!questions || questions.length === 0)
-                continue;
-            if (qtype === '简答') {
-                globalNum += questions.length;
-                continue;
-            }
-            for (const q of questions) {
-                globalNum++;
-                if (!q.isWrong)
-                    continue;
-                output += `**${globalNum}.** ${(0, legacy_bridge_2.formatRichForMD)((0, legacy_bridge_2.questionContent)(q))}\n\n`;
-                output += `**${globalNum}.** ${(0, legacy_bridge_2.formatRichForMD)((0, legacy_bridge_2.questionContent)(q))}\n\n`;
-                output += `- 我的答案: ${q.myAnswer || '无'}\n`;
-                output += `- 正确答案: ${(0, legacy_bridge_2.formatRichForMD)((0, legacy_bridge_2.answerContent)(q)) || '（未找到答案）'}\n\n`;
-            }
-        }
-        return output.replace(/\n+$/, '');
-    }
-});
-define("exporters/word-exporter", ["require", "exports", "exporters/legacy-bridge"], function (require, exports, legacy_bridge_3) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.WORD_MIME = void 0;
-    exports.generateWordBlob = generateWordBlob;
-    exports.WORD_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-    // ==================== Word 文档生成（富文本） ====================
-    async function fetchImageAsset(url) {
-        if (!url)
-            return null;
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000);
-            const resp = await fetch(url, { mode: 'cors', signal: controller.signal });
-            clearTimeout(timeoutId);
-            if (!resp.ok)
-                return null;
-            const blob = await resp.blob();
-            if (!blob.type.startsWith('image/'))
-                return null;
-            const data = await new Promise((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : null);
-                reader.onerror = () => resolve(null);
-                reader.readAsDataURL(blob);
-            });
-            if (!data)
-                return null;
-            const size = await new Promise((resolve) => {
-                const img = new Image();
-                img.onload = () => resolve({ width: img.naturalWidth || 300, height: img.naturalHeight || 200 });
-                img.onerror = () => resolve({ width: 300, height: 200 });
-                img.src = data;
-            });
-            const typeMap = {
-                'image/png': 'png',
-                'image/jpeg': 'jpg',
-                'image/jpg': 'jpg',
-                'image/gif': 'gif',
-                'image/bmp': 'bmp',
-            };
-            const type = typeMap[blob.type] || 'png';
-            return { data, type, width: size.width, height: size.height };
-        }
-        catch {
-            return null;
-        }
-    }
-    async function buildImageRun(url) {
-        if (!url)
-            return null;
-        const base64 = await fetchImageAsset(url);
-        if (base64) {
-            // 按比例限制最大宽高，避免固定尺寸导致变形
-            const maxWidth = 420;
-            const maxHeight = 260;
-            const scale = Math.min(maxWidth / base64.width, maxHeight / base64.height, 1);
-            return new docx.ImageRun({
-                data: base64,
-                transformation: {
-                    width: Math.round(base64.width * scale),
-                    height: Math.round(base64.height * scale),
-                },
-                type: base64.type,
-            });
-        }
-        // 图片加载失败，记录计数
-        window.__xxt_failed_image_count = (window.__xxt_failed_image_count || 0) + 1;
-        return null;
-    }
-    async function buildRichRuns(content, prefix = '') {
-        const { TextRun } = docx;
-        const runs = [];
-        if (prefix)
-            runs.push(new TextRun({ text: prefix, font: 'Microsoft YaHei', size: 22 }));
-        for (const part of content || []) {
-            if (part.type === 'text') {
-                const normalized = part.text.replace(/\n+/g, ' ');
-                if (normalized) {
-                    runs.push(new TextRun({
-                        text: normalized,
-                        font: 'Microsoft YaHei',
-                        size: 22,
-                        bold: part.bold || false,
-                        italics: part.italic || false,
-                        subScript: part.subScript || false,
-                        superScript: part.superScript || false,
-                    }));
-                }
-            }
-            else if (part.type === 'image') {
-                if (runs.length > 0)
-                    runs.push(new TextRun({ text: ' ', font: 'Microsoft YaHei', size: 22 }));
-                const imgRun = await buildImageRun(part.url);
-                if (imgRun)
-                    runs.push(imgRun);
-                runs.push(new TextRun({ text: ' ', font: 'Microsoft YaHei', size: 22 }));
-            }
-            else if (part.type === 'break') {
-                runs.push(new TextRun({ text: '\n', break: 1, font: 'Microsoft YaHei', size: 22 }));
-            }
-        }
-        return runs.length ? runs : [new TextRun({ text: prefix, font: 'Microsoft YaHei', size: 22 })];
-    }
-    // 将富文本内容构建为带段后间距的 Paragraph 数组（Word 导出用）
-    async function buildRichParagraphs(content, prefix = '', spacing = 0) {
-        const { Paragraph } = docx;
-        const runs = await buildRichRuns(content, prefix);
-        return [
-            new Paragraph({
-                children: runs,
-                spacing: { after: spacing },
-            }),
-        ];
-    }
-    // 清洗答案文本：去除“正确答案:/我的答案:”等标签，避免组合出现
-    function cleanAnswerText(text) {
-        if (!text)
-            return '';
-        return text
-            .replace(/\u00a0/g, ' ')
-            .replace(/\r/g, '\n')
-            .replace(/(?:正确答案|参考答案)[:：]?\s*/g, '')
-            .replace(/(?:我的答案|你的答案|学生答案)[:：]?\s*/g, '')
-            .replace(/^[：:\s]+/, '')
-            .replace(/\n{3,}/g, '\n\n')
-            .trim();
-    }
-    async function generateWordBlob(results, typeOrder, title, withAnswers, withWrong, bankImport) {
-        const { Document, Packer, Paragraph, TextRun, AlignmentType, convertMillimetersToTwip, HeadingLevel, PageBreak } = docx;
-        const FONT = 'Microsoft YaHei';
-        const COLOR = {
-            title: '1F2937',
-            muted: '6B7280',
-            border: 'E5E7EB',
-            answer: '00A870',
-            wrong: 'DC2626',
-            analysisBg: 'F7F9FC',
-            type: '64748B',
-        };
-        const typeHeaders = {
-            单选: '一、单项选择题',
-            多选: '二、多项选择题',
-            填空: '三、填空题',
-            判断: '四、判断题',
-            简答: '五、简答题',
-        };
-        const bankTypeLabels = {
-            单选: '【单选题】',
-            多选: '【多选题】',
-            填空: '【填空题】',
-            判断: '【判断题】',
-            简答: '【简答题】',
-        };
-        // 题库导入格式：生成学习通智能导入兼容的 Word 文档
-        if (bankImport) {
-            const children = [];
-            children.push(new Paragraph({
-                children: [
-                    new TextRun({
-                        text: title || '题库导入',
-                        font: FONT,
-                        size: 32,
-                        bold: true,
-                        color: COLOR.title,
-                    }),
-                ],
-                heading: HeadingLevel.HEADING_1,
-                alignment: AlignmentType.CENTER,
-                spacing: { after: 240 },
-            }));
-            let qNum = 0;
-            for (const qtype of typeOrder) {
-                const questions = results[qtype];
-                if (!questions || questions.length === 0)
-                    continue;
-                const prefix = bankTypeLabels[qtype];
-                for (const q of questions) {
-                    qNum++;
-                    // 题干（题号 + 题型标签 + 题干内容），括号归一化
-                    const stemText = (0, legacy_bridge_3.formatRichForText)((0, legacy_bridge_3.questionContent)(q));
-                    const stem = prefix + stemText.replace(/\(\s{2,}\)/g, '（ ）').replace(/（\s{2,}）/g, '（ ）');
-                    children.push(new Paragraph({
-                        children: [new TextRun({ text: `${qNum}.${stem}`, font: FONT, size: 22 })],
-                        spacing: { after: 40 },
-                    }));
-                    // 题干中的图片
-                    const stemContent = (0, legacy_bridge_3.questionContent)(q);
-                    for (const part of stemContent) {
-                        if (part.type === 'image') {
-                            const imgRun = await buildImageRun(part.url);
-                            if (imgRun) {
-                                children.push(new Paragraph({
-                                    children: [imgRun],
-                                    spacing: { after: 80 },
-                                }));
-                            }
-                        }
-                    }
-                    // 选项
-                    const options = q.options || [];
-                    for (const opt of options) {
-                        const runs = await buildRichRuns((0, legacy_bridge_3.optionContent)(opt), `${opt.letter}. `);
-                        children.push(new Paragraph({
-                            children: runs,
-                            indent: { left: 400, hanging: 200 },
-                            spacing: { after: 40 },
-                        }));
-                    }
-                    // 答案
-                    const answer = (0, legacy_bridge_3.formatRichForText)((0, legacy_bridge_3.answerContent)(q)).trim();
-                    if (answer) {
-                        // 格式化答案内容
-                        let formattedAnswerParts = null;
-                        if (qtype === '多选') {
-                            const parts = answer.replace(/\s+/g, '').split('');
-                            formattedAnswerParts = [{ type: 'text', text: parts.join('，') }];
-                        }
-                        else if (qtype === '判断') {
-                            if (/^[√✓Tt]|正确|True|TRUE/.test(answer)) {
-                                formattedAnswerParts = [{ type: 'text', text: '对' }];
-                            }
-                            else {
-                                formattedAnswerParts = [{ type: 'text', text: '错' }];
-                            }
-                        }
-                        children.push(...(await buildRichParagraphs(formattedAnswerParts || [{ type: 'text', text: answer }], '答案：', 120)));
-                    }
-                    else {
-                        children.push(new Paragraph({
-                            children: [new TextRun({ text: '', font: FONT, size: 22 })],
-                            spacing: { after: 120 },
-                        }));
-                    }
-                }
-            }
-            const doc = new Document({
-                styles: {
-                    paragraphStyles: [
-                        {
-                            id: 'Normal',
-                            name: 'Normal',
-                            run: { font: FONT, size: 22, color: COLOR.title },
-                            paragraph: { spacing: { line: 330, lineRule: 'auto' } },
-                        },
-                    ],
-                },
-                sections: [
-                    {
-                        properties: {
-                            page: {
-                                size: { width: 11906, height: 16838 },
-                                margin: {
-                                    top: convertMillimetersToTwip(20),
-                                    bottom: convertMillimetersToTwip(20),
-                                    left: convertMillimetersToTwip(25),
-                                    right: convertMillimetersToTwip(25),
-                                },
-                            },
-                        },
-                        children,
-                    },
-                ],
-            });
-            return await Packer.toBlob(doc);
-        }
-        const children = [];
-        // 标题
-        children.push(new Paragraph({
-            children: [
-                new TextRun({ text: title || '试卷', font: FONT, size: 32, bold: true, color: '2563EB' }),
-            ],
-            heading: HeadingLevel.HEADING_1,
-            alignment: AlignmentType.CENTER,
-            spacing: { before: 200, after: 120 },
-        }));
-        // 统计摘要
-        let totalQ = 0;
-        const typeCount = {};
-        for (const qtype of typeOrder) {
-            const questions = results[qtype];
-            if (!questions || questions.length === 0)
-                continue;
-            typeCount[qtype] = questions.length;
-            totalQ += questions.length;
-        }
-        const summary = Object.entries(typeCount)
-            .map(([type, count]) => `${type} ${count} 道`)
-            .join(' / ');
-        children.push(new Paragraph({
-            children: [
-                new TextRun({ text: `共 ${totalQ} 道题`, font: FONT, size: 20, color: COLOR.muted }),
-                ...(summary
-                    ? [new TextRun({ text: ` · ${summary}`, font: FONT, size: 20, color: COLOR.muted })]
-                    : []),
-            ],
-            alignment: AlignmentType.CENTER,
-            spacing: { before: 60, after: 260 },
-        }));
-        let qNum = 0;
-        for (const qtype of typeOrder) {
-            const questions = results[qtype];
-            if (!questions || questions.length === 0)
-                continue;
-            const header = typeHeaders[qtype] || qtype;
-            const count = questions.length;
-            children.push(new Paragraph({
-                children: [
-                    new TextRun({
-                        text: `${header}（本大题共${count}小题）`,
-                        font: FONT,
-                        size: 28,
-                        bold: true,
-                        color: COLOR.title,
-                    }),
-                ],
-                spacing: { after: 120 },
-            }));
-            for (const q of questions) {
-                qNum++;
-                const stemContent = (0, legacy_bridge_3.questionContent)(q);
-                const typeMetaRun = q.typeMeta
-                    ? new TextRun({ text: `${q.typeMeta} `, font: FONT, size: 22, color: COLOR.type })
-                    : null;
-                if (qtype === '单选' || qtype === '多选') {
-                    // 题目块
-                    children.push(new Paragraph({
-                        children: [
-                            new TextRun({
-                                text: `${qNum}. `,
-                                font: FONT,
-                                size: 22,
-                                bold: true,
-                                color: COLOR.title,
-                            }),
-                            ...(typeMetaRun ? [typeMetaRun] : []),
-                            ...(await buildRichRuns(stemContent)),
-                        ],
-                        spacing: { before: 220, after: 100 },
-                    }));
-                    const options = q.options || [];
-                    if (options.length > 0) {
-                        // 单选/多选选项统一一列多行排列
-                        for (const opt of options) {
-                            children.push(new Paragraph({
-                                children: await buildRichRuns((0, legacy_bridge_3.optionContent)(opt), `${opt.letter}. `),
-                                indent: { left: 620, hanging: 220 },
-                                spacing: { before: 30, after: 30 },
-                            }));
-                        }
-                        children.push(new Paragraph({ children: [], spacing: { after: 80 } }));
-                    }
-                }
-                else if (qtype === '填空') {
-                    children.push(new Paragraph({
-                        children: [
-                            new TextRun({
-                                text: `${qNum}. `,
-                                font: FONT,
-                                size: 22,
-                                bold: true,
-                                color: COLOR.title,
-                            }),
-                            ...(await buildRichRuns(stemContent)),
-                        ],
-                        spacing: { before: 220, after: 40 },
-                    }));
-                    children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
-                }
-                else if (qtype === '判断') {
-                    const judgeRuns = await buildRichRuns(stemContent);
-                    judgeRuns.push(new TextRun({ text: '（  ）', font: FONT, size: 22 }));
-                    children.push(new Paragraph({
-                        children: [
-                            new TextRun({
-                                text: `${qNum}. `,
-                                font: FONT,
-                                size: 22,
-                                bold: true,
-                                color: COLOR.title,
-                            }),
-                            ...(typeMetaRun ? [typeMetaRun] : []),
-                            ...judgeRuns,
-                        ],
-                        spacing: { before: 220, after: 120 },
-                    }));
-                }
-                else if (qtype === '简答') {
-                    children.push(new Paragraph({
-                        children: [
-                            new TextRun({
-                                text: `${qNum}. `,
-                                font: FONT,
-                                size: 22,
-                                bold: true,
-                                color: COLOR.title,
-                            }),
-                            ...(typeMetaRun ? [typeMetaRun] : []),
-                            ...(await buildRichRuns(stemContent)),
-                        ],
-                        spacing: { before: 220, after: 40 },
-                    }));
-                    for (let i = 0; i < 8; i++) {
-                        children.push(new Paragraph({
-                            children: [new TextRun({ text: '', font: FONT, size: 22 })],
-                            spacing: { after: 40 },
-                        }));
-                    }
-                    children.push(new Paragraph({ children: [], spacing: { after: 80 } }));
-                }
-            }
-            // 判断题与简答题之间补一行空行
-            if (qtype === '判断') {
-                children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
-            }
-        }
-        // 答案页
-        if (withAnswers) {
-            children.push(new Paragraph({
-                children: [new PageBreak()],
-                spacing: { after: 0 },
-            }));
-            children.push(new Paragraph({
-                children: [
-                    new TextRun({
-                        text: '正确答案',
-                        font: FONT,
-                        size: 32,
-                        bold: true,
-                        color: COLOR.title,
-                    }),
-                ],
-                heading: HeadingLevel.HEADING_1,
-                alignment: AlignmentType.CENTER,
-                spacing: { before: 200, after: 240 },
-            }));
-            let aNum = 0;
-            for (const qtype of typeOrder) {
-                const questions = results[qtype];
-                if (!questions || questions.length === 0)
-                    continue;
-                const header = typeHeaders[qtype] || qtype;
-                children.push(new Paragraph({
-                    children: [new TextRun({ text: header, font: FONT, size: 28, bold: true, color: COLOR.title })],
-                    spacing: { after: 120 },
-                }));
-                for (const q of questions) {
-                    aNum++;
-                    // 清洗答案文本，去除“正确答案:/我的答案:”等标签组合
-                    const answerContentArr = (0, legacy_bridge_3.answerContent)(q);
-                    const cleanedContent = answerContentArr.map((part) => {
-                        if (part.type === 'text') {
-                            return { ...part, text: cleanAnswerText(part.text) };
-                        }
-                        return part;
-                    });
-                    const answerRuns = await buildRichRuns(cleanedContent);
-                    if (answerRuns.length === 0) {
-                        answerRuns.push(new TextRun({ text: '（未找到答案）', font: FONT, size: 22, color: COLOR.muted }));
-                    }
-                    else {
-                        // 将答案文本改为绿色加粗
-                        answerRuns.forEach((run) => {
-                            if (run.font)
-                                run.font = FONT;
-                            run.size = 22;
-                            run.bold = true;
-                            run.color = COLOR.answer;
-                        });
-                    }
-                    children.push(new Paragraph({
-                        children: [new TextRun({ text: `${aNum}. `, font: FONT, size: 22, color: COLOR.title }), ...answerRuns],
-                        spacing: { before: 90, after: 70 },
-                        indent: { left: 420 },
-                    }));
-                    // 简答题答案常有多行，之间空一行便于区分
-                    if (qtype === '简答') {
-                        children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
-                    }
-                }
-            }
-        }
-        // 错题汇总（Word 试卷）
-        if (withWrong) {
-            let hasWrong = false;
-            for (const qtype of typeOrder) {
-                const questions = results[qtype];
-                if (!questions)
-                    continue;
-                for (const q of questions) {
-                    if (q.isWrong) {
-                        hasWrong = true;
-                        break;
-                    }
-                }
-                if (hasWrong)
-                    break;
-            }
-            if (hasWrong) {
-                children.push(new Paragraph({
-                    children: [new PageBreak()],
-                    spacing: { after: 0 },
-                }));
-                children.push(new Paragraph({
-                    children: [
-                        new TextRun({
-                            text: '错题汇总',
-                            font: FONT,
-                            size: 32,
-                            bold: true,
-                            color: COLOR.title,
-                        }),
-                    ],
-                    heading: HeadingLevel.HEADING_1,
-                    alignment: AlignmentType.CENTER,
-                    spacing: { before: 200, after: 240 },
-                }));
-                let globalNum = 0;
-                for (const qtype of typeOrder) {
-                    const questions = results[qtype];
-                    if (!questions || questions.length === 0)
-                        continue;
-                    if (qtype === '简答') {
-                        globalNum += questions.length;
-                        continue;
-                    }
-                    const header = typeHeaders[qtype] || qtype;
-                    let sectionHasWrong = false;
-                    for (const q of questions) {
-                        if (q.isWrong) {
-                            sectionHasWrong = true;
-                            break;
-                        }
-                    }
-                    if (!sectionHasWrong) {
-                        globalNum += questions.length;
-                        continue;
-                    }
-                    children.push(new Paragraph({
-                        children: [
-                            new TextRun({ text: header, font: FONT, size: 28, bold: true, color: COLOR.title }),
-                        ],
-                        spacing: { after: 120 },
-                    }));
-                    for (const q of questions) {
-                        globalNum++;
-                        if (!q.isWrong)
-                            continue;
-                        children.push(new Paragraph({
-                            children: await buildRichRuns((0, legacy_bridge_3.questionContent)(q), `${globalNum}. `),
-                            spacing: { before: 160, after: 40 },
-                        }));
-                        const options = q.options || [];
-                        if (options.length > 0) {
-                            for (const opt of options) {
-                                children.push(new Paragraph({
-                                    children: await buildRichRuns((0, legacy_bridge_3.optionContent)(opt), `${opt.letter}. `),
-                                    indent: { left: 620, hanging: 220 },
-                                    spacing: { before: 30, after: 30 },
-                                }));
-                            }
-                        }
-                        children.push(new Paragraph({
-                            children: [
-                                new TextRun({
-                                    text: `我的答案: ${q.myAnswer || '无'}`,
-                                    font: FONT,
-                                    size: 22,
-                                    color: COLOR.wrong,
-                                }),
-                            ],
-                            spacing: { before: 60, after: 40 },
-                            indent: { left: 420 },
-                        }));
-                        const answerContentArr = (0, legacy_bridge_3.answerContent)(q);
-                        const cleanedContent = answerContentArr.map((part) => {
-                            if (part.type === 'text') {
-                                return { ...part, text: cleanAnswerText(part.text) };
-                            }
-                            return part;
-                        });
-                        const correctRuns = await buildRichRuns(cleanedContent);
-                        if (correctRuns.length === 0) {
-                            correctRuns.push(new TextRun({ text: '（未找到答案）', font: FONT, size: 22, color: COLOR.muted }));
-                        }
-                        else {
-                            correctRuns.forEach((run) => {
-                                if (run.font)
-                                    run.font = FONT;
-                                run.size = 22;
-                                run.bold = true;
-                                run.color = COLOR.answer;
-                            });
-                        }
-                        children.push(new Paragraph({
-                            children: [
-                                new TextRun({
-                                    text: '正确答案：',
-                                    font: FONT,
-                                    size: 22,
-                                    bold: true,
-                                    color: COLOR.answer,
-                                }),
-                                ...correctRuns,
-                            ],
-                            spacing: { before: 40, after: 120 },
-                            indent: { left: 420 },
-                        }));
-                        // 每道题之间空一行
-                        children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
-                    }
-                    // 每个类别之间空一行
-                    children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
-                }
-            }
-        }
-        const doc = new Document({
-            styles: {
-                paragraphStyles: [
-                    {
-                        id: 'Normal',
-                        name: 'Normal',
-                        run: { font: FONT, size: 22, color: COLOR.title },
-                        paragraph: { spacing: { line: 330, lineRule: 'auto' } },
-                    },
-                ],
-            },
-            sections: [
-                {
-                    properties: {
-                        page: {
-                            size: { width: 11906, height: 16838 },
-                            margin: {
-                                top: 1134,
-                                right: 1134,
-                                bottom: 1134,
-                                left: 1134,
-                            },
-                        },
-                    },
-                    children,
-                },
-            ],
-        });
-        return await Packer.toBlob(doc);
-    }
-});
-define("exporters/export-service", ["require", "exports", "exporters/legacy-bridge", "exporters/text-formatter", "exporters/markdown-formatter", "exporters/word-exporter"], function (require, exports, legacy_bridge_4, text_formatter_1, markdown_formatter_1, word_exporter_1) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.ExportService = void 0;
-    // 原版 getOutputText：根据选项生成输出文本
-    // （打乱时题目和答案用打乱顺序重新生成，错题汇总始终用原始顺序）
-    function getOutputText(legacy, options) {
-        const fmt = options.format;
-        const withAnswers = options.withAnswers;
-        const withWrong = options.withWrong;
-        const doShuffle = options.shuffle;
-        let base = '';
-        if (doShuffle) {
-            const shuffled = (0, legacy_bridge_4.shuffleQuestions)(legacy.results, legacy.typeOrder);
-            if (fmt === 'md') {
-                base = withAnswers
-                    ? (0, markdown_formatter_1.formatOutputWithAnswersMD)(shuffled, legacy.typeOrder)
-                    : (0, markdown_formatter_1.formatOutputMD)(shuffled, legacy.typeOrder);
-            }
-            else {
-                base = withAnswers
-                    ? (0, text_formatter_1.formatOutputWithAnswers)(shuffled, legacy.typeOrder)
-                    : (0, text_formatter_1.formatOutput)(shuffled, legacy.typeOrder);
-            }
-        }
-        else {
-            if (fmt === 'md') {
-                base = withAnswers
-                    ? (0, markdown_formatter_1.formatOutputWithAnswersMD)(legacy.results, legacy.typeOrder)
-                    : (0, markdown_formatter_1.formatOutputMD)(legacy.results, legacy.typeOrder);
-            }
-            else {
-                base = withAnswers
-                    ? (0, text_formatter_1.formatOutputWithAnswers)(legacy.results, legacy.typeOrder)
-                    : (0, text_formatter_1.formatOutput)(legacy.results, legacy.typeOrder);
-            }
-        }
-        if (withWrong) {
-            const wrong = fmt === 'md'
-                ? (0, markdown_formatter_1.formatWrongQuestionsMD)(legacy.results, legacy.typeOrder)
-                : (0, text_formatter_1.formatWrongQuestionsTXT)(legacy.results, legacy.typeOrder);
-            return base + wrong;
-        }
-        return base;
-    }
-    // 原版 getChapterText：为单个章节生成输出文本（用于分章节下载）
-    function getChapterText(chapter, options) {
-        const results = chapter.results || {};
-        const typeOrder = chapter.typeOrder || [];
-        const withAnswers = options.withAnswers;
-        const withWrong = options.withWrong;
-        const doShuffle = options.shuffle;
-        const activeResults = doShuffle ? (0, legacy_bridge_4.shuffleQuestions)(results, typeOrder) : results;
-        if (options.format === 'md') {
-            if (withWrong)
-                return (0, markdown_formatter_1.formatWrongQuestionsMD)(activeResults, typeOrder);
-            if (withAnswers)
-                return (0, markdown_formatter_1.formatOutputWithAnswersMD)(activeResults, typeOrder);
-            return (0, markdown_formatter_1.formatOutputMD)(activeResults, typeOrder);
-        }
-        if (withWrong)
-            return (0, text_formatter_1.formatWrongQuestionsTXT)(activeResults, typeOrder);
-        if (withAnswers)
-            return (0, text_formatter_1.formatOutputWithAnswers)(activeResults, typeOrder);
-        return (0, text_formatter_1.formatOutput)(activeResults, typeOrder);
-    }
-    class ExportService {
-        async createArtifacts(sourceResult, options) {
-            const legacy = (0, legacy_bridge_4.toLegacyResult)(sourceResult);
-            // 原版规则：文件名输入去掉扩展名后作为基础名
-            const baseFilename = (options.filename || legacy.title || '学习通题目').replace(/\.(txt|md|docx)$/, '');
-            // Word 试卷导出（原版逻辑：题库导入必带答案并禁用打乱/错题；Word 暂不支持分章节，合并导出）
-            if (options.format === 'word') {
-                const isBankImport = options.bankImport;
-                const doShuffle = !isBankImport && options.shuffle;
-                const withWrong = !isBankImport && options.withWrong;
-                const activeResults = doShuffle
-                    ? (0, legacy_bridge_4.shuffleQuestions)(legacy.results, legacy.typeOrder)
-                    : legacy.results;
-                window.__xxt_failed_image_count = 0;
-                const blob = await (0, word_exporter_1.generateWordBlob)(activeResults, legacy.typeOrder, legacy.title, isBankImport || options.withAnswers, withWrong, isBankImport);
-                const failedImages = window.__xxt_failed_image_count || 0;
-                return [
-                    {
-                        blob,
-                        filename: `${baseFilename}.docx`,
-                        mimeType: word_exporter_1.WORD_MIME,
-                        failedImages,
-                    },
-                ];
-            }
-            // TXT / MD 导出
-            const ext = options.format === 'md' ? '.md' : '.txt';
-            const mime = options.format === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8';
-            // 分章节下载：每个章节单独一个文件
-            if (options.splitByChapter && sourceResult.chapters && sourceResult.chapters.length > 1) {
-                const artifacts = [];
-                for (let i = 0; i < sourceResult.chapters.length; i++) {
-                    const chapter = sourceResult.chapters[i];
-                    if (!chapter)
-                        continue;
-                    const chapterData = (0, legacy_bridge_4.toLegacyChapter)(chapter);
-                    // 生成单章文本
-                    const chText = getChapterText(chapterData, options);
-                    const safeTitle = (chapterData.title || `章节${i + 1}`).replace(/[\\/:*?"<>|]/g, '_');
-                    artifacts.push({
-                        blob: new Blob([chText], { type: mime }),
-                        filename: `${baseFilename}_${i + 1}_${safeTitle}${ext}`,
-                        mimeType: mime,
-                    });
-                }
-                return artifacts;
-            }
-            // 合并下载
-            const text = getOutputText(legacy, options);
-            return [
-                {
-                    blob: new Blob([text], { type: mime }),
-                    filename: `${baseFilename}${ext}`,
-                    mimeType: mime,
-                },
-            ];
-        }
-        previewText(result, options) {
-            // 原版行为：Word 格式不支持复制文本
-            if (options.format === 'word')
-                return '';
-            return getOutputText((0, legacy_bridge_4.toLegacyResult)(result), options);
-        }
-    }
-    exports.ExportService = ExportService;
-});
-define("infrastructure/clipboard-service", ["require", "exports"], function (require, exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.ClipboardService = void 0;
-    class ClipboardService {
-        async writeText(value) {
-            if (navigator.clipboard?.writeText) {
-                await navigator.clipboard.writeText(value);
-                return;
-            }
-            const textarea = document.createElement('textarea');
-            textarea.value = value;
-            textarea.style.position = 'fixed';
-            textarea.style.opacity = '0';
-            document.body.appendChild(textarea);
-            textarea.select();
-            const copied = document.execCommand('copy');
-            textarea.remove();
-            if (!copied)
-                throw new Error('浏览器拒绝访问剪贴板');
-        }
-    }
-    exports.ClipboardService = ClipboardService;
-});
-define("infrastructure/download-service", ["require", "exports"], function (require, exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.DownloadService = void 0;
-    class DownloadService {
-        // 原版下载方式：创建临时 <a> 点击后立即释放 URL
-        async download(artifact) {
-            const url = URL.createObjectURL(artifact.blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = artifact.filename;
-            a.click();
-            URL.revokeObjectURL(url);
-        }
-        // 多文件下载间隔 300ms，避免多个下载被浏览器拦截
-        async downloadMany(artifacts) {
-            for (const artifact of artifacts) {
-                await this.download(artifact);
-                // 浏览器下载间隔，避免多个下载被拦截
-                await new Promise((resolve) => setTimeout(resolve, 300));
-            }
-        }
-    }
-    exports.DownloadService = DownloadService;
-});
-define("utils/array", ["require", "exports"], function (require, exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.shuffleCopy = shuffleCopy;
-    exports.uniqueBy = uniqueBy;
-    function shuffleCopy(values, random = Math.random) {
-        const output = [...values];
-        for (let index = output.length - 1; index > 0; index -= 1) {
-            const swapIndex = Math.floor(random() * (index + 1));
-            const temporary = output[index];
-            output[index] = output[swapIndex];
-            output[swapIndex] = temporary;
-        }
-        return output;
-    }
-    function uniqueBy(values, keyOf) {
-        const seen = new Set();
-        const output = [];
-        for (const value of values) {
-            const key = keyOf(value);
-            if (seen.has(key))
-                continue;
-            seen.add(key);
-            output.push(value);
-        }
-        return output;
-    }
-});
-define("extractors/contracts", ["require", "exports"], function (require, exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
 });
 define("utils/dom", ["require", "exports"], function (require, exports) {
     "use strict";
@@ -1538,7 +230,10 @@ define("utils/dom", ["require", "exports"], function (require, exports) {
         return output;
     }
     function parseLeadingNumber(value) {
-        const match = value.match(/^\s*(\d+)\s*[.、．]/u);
+        // 两种写法都算题号：「1. 题干」这种带分隔符的前缀，以及 <i class="fl">1</i> 这种只含题号的节点。
+        // 已批阅视图的题号节点是裸数字（无「.」「、」），只认前者会让该模板的题号整列为 undefined。
+        // 不能放宽成「行首数字」：题干正文常以年份开头（「2024 年…」），那样会把年份当成题号。
+        const match = value.match(/^\s*(\d+)\s*[.、．]/u) ?? value.match(/^\s*(\d{1,3})\s*$/u);
         if (!match?.[1])
             return undefined;
         const parsed = Number.parseInt(match[1], 10);
@@ -1575,6 +270,38 @@ define("utils/dom", ["require", "exports"], function (require, exports) {
             return false;
         return Boolean(target.closest('input, textarea, select, [contenteditable="true"]'));
     }
+});
+define("utils/array", ["require", "exports"], function (require, exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.shuffleCopy = shuffleCopy;
+    exports.uniqueBy = uniqueBy;
+    function shuffleCopy(values, random = Math.random) {
+        const output = [...values];
+        for (let index = output.length - 1; index > 0; index -= 1) {
+            const swapIndex = Math.floor(random() * (index + 1));
+            const temporary = output[index];
+            output[index] = output[swapIndex];
+            output[swapIndex] = temporary;
+        }
+        return output;
+    }
+    function uniqueBy(values, keyOf) {
+        const seen = new Set();
+        const output = [];
+        for (const value of values) {
+            const key = keyOf(value);
+            if (seen.has(key))
+                continue;
+            seen.add(key);
+            output.push(value);
+        }
+        return output;
+    }
+});
+define("extractors/contracts", ["require", "exports"], function (require, exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
 });
 define("utils/text", ["require", "exports"], function (require, exports) {
     "use strict";
@@ -3961,9 +2688,13 @@ define("extractors/rich-content", ["require", "exports", "utils/text", "extracto
         return resolveUrl(image.src, baseUrl);
     }
     function extractBackgroundImages(element) {
-        if (!(element instanceof HTMLElement))
+        // 不能按 instanceof HTMLElement 判定：顶层脚本跨层读取同源 iframe 文档时，
+        // 节点的构造器属于那个文档所在的 window，instanceof 会一律判 false；
+        // 改为按能力判断——能取到 style 的元素才可能有背景图
+        const style = element.style;
+        if (!style)
             return [];
-        let background = element.style.backgroundImage;
+        let background = style.backgroundImage;
         try {
             if (!background || background === 'none') {
                 background = element.ownerDocument.defaultView?.getComputedStyle(element).backgroundImage ?? '';
@@ -3992,6 +2723,19 @@ define("extractors/rich-content", ["require", "exports", "utils/text", "extracto
         subScript: false,
         superScript: false,
     };
+    /**
+     * 节点是否为元素。
+     *
+     * 这里不能用 `node instanceof Element`：脚本在顶层窗口运行时会把同源 iframe 的文档一并
+     * 遍历（`collectAccessibleDocuments`），而那些节点的构造器属于它们自己的 window，
+     * `instanceof` 会一律判 false —— 后果是整棵子树都读不出内容。题干若恰好落在容器的
+     * 直接文本节点上还能读到，选项文字却都嵌在 `<a>` / `<label>` / `<span>` 里，就会一条都
+     * 读不到，表现为「提取到题干、提取不到选项」（且题干里嵌套的题型标记会一起丢失）。
+     * nodeType 是各文档统一的常量，与节点属于哪个 window 无关，用它判定即可。
+     */
+    function isElementNode(node) {
+        return node.nodeType === Node.ELEMENT_NODE;
+    }
     function extractRichContent(element) {
         if (!element)
             return [];
@@ -4006,7 +2750,7 @@ define("extractors/rich-content", ["require", "exports", "utils/text", "extracto
                 });
                 return;
             }
-            if (!(node instanceof Element))
+            if (!isElementNode(node))
                 return;
             const tag = node.tagName.toUpperCase();
             if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE'].includes(tag))
@@ -4167,12 +2911,19 @@ define("extractors/answer-comparison", ["require", "exports", "utils/text", "ext
             '.is-wrong',
             '[data-correct="false"]',
             '[data-result="wrong"]',
+            // 章节测验「已完成 / 已批阅」视图不输出「正确答案」文本，只在每题下用图标表示批阅结果：
+            // span.marking_dui 批阅正确、span.marking_cuo 批阅错误、span.marking_bandui 部分正确。
+            // 这类页面没有可比较的答案文本，只能靠该标记判定错题，否则错题汇总会整页漏掉。
+            // 部分正确同样需要复习，因此一并计入错题。
+            '.marking_cuo',
+            '.marking_bandui',
         ].join(',')));
     }
 });
 define("extractors/option-parser", ["require", "exports", "utils/text", "extractors/rich-content"], function (require, exports, text_3, rich_content_2) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
+    exports.FALLBACK_OPTION_SELECTORS = void 0;
     exports.parseLegacyOption = parseLegacyOption;
     exports.parseAnswerBackgroundOption = parseAnswerBackgroundOption;
     exports.parseOptions = parseOptions;
@@ -4198,8 +2949,27 @@ define("extractors/option-parser", ["require", "exports", "utils/text", "extract
             return null;
         return { key: key || parsed.key || String.fromCharCode(65 + index), content: parsed.content };
     }
+    /**
+     * 选项容器兜底选择器：在各提取器自带的候选之后追加。
+     *
+     * 学习通 2026 版答题页的每个选项是 `<li class="font-cxsecret before-after" role="radio|checkbox"
+     * onclick="addChoice(this)">`，选项文字在 `a.after` 里。类名随版本变化，但 `role` 与
+     * `onclick` 这两个语义标记极稳定，因此单独放在最后兜底：正常页面走自带候选、行为不变，
+     * 只有在类名全部失效（表现为「只提取到题干、提取不到选项」）时才由这里接手。
+     */
+    exports.FALLBACK_OPTION_SELECTORS = [
+        '.Zy_ulTop li',
+        '.qtDetail li',
+        'li[onclick*="addChoice"]',
+        'li[role="radio"]',
+        'li[role="checkbox"]',
+        // 已批阅视图的选项是 <li class="clearfix" role="option"><i class="fl">A、</i><a class="fl">…</a></li>，
+        // 该类名同样随版本变化，只有 role="option" 稳定；它也是页面里最常见的通用 role，
+        // 因此放在最末，仅当前面所有候选都落空时才接手。
+        'li[role="option"]',
+    ];
     function parseOptions(container, selectors) {
-        for (const selector of selectors) {
+        for (const selector of [...selectors, ...exports.FALLBACK_OPTION_SELECTORS]) {
             const elements = Array.from(container.querySelectorAll(selector));
             if (elements.length === 0)
                 continue;
@@ -4246,11 +3016,14 @@ define("extractors/common-answer", ["require", "exports", "utils/dom", "extracto
     exports.extractCorrectAnswer = extractCorrectAnswer;
     exports.extractUserAnswer = extractUserAnswer;
     exports.extractAnalysis = extractAnalysis;
+    exports.inferCorrectAnswerFromGrading = inferCorrectAnswerFromGrading;
     const CORRECT_SELECTORS = [
         '.mark_answer .mark_key .colorGreen .stuAnswerContent',
         '.mark_answer .mark_key .colorGreen',
         '.newAnswerBx .correctAnswerBx .answerCon',
+        '.newAnswerBx .correctAnswer .answerCon',
         '.correctAnswerBx .answerCon',
+        '.correctAnswerBx .correctAnswer',
         '.correctAnswerContent',
         '.correct-answer',
         '.rightAnswer',
@@ -4260,12 +3033,16 @@ define("extractors/common-answer", ["require", "exports", "utils/dom", "extracto
         '.mark_answer .mark_key .colorDeep .stuAnswerContent',
         '.mark_answer .mark_key .colorDeep',
         '.newAnswerBx .myAnswerBx .answerCon',
+        // 章节测验「已批阅」视图一次作答会渲染多组答案，此时用 myAllAnswerBx 包裹
+        '.newAnswerBx .myAllAnswerBx .myAnswerBx',
         '.myAnswerBx .answerCon',
         '.myAnswer .answerCon',
         '.my-answer',
         '[data-role="user-answer"]',
     ];
     const ANALYSIS_SELECTORS = [
+        '.newAnswerBx .answerKeyBx .answerCon',
+        '.answerKeyBx .answerCon',
         '.newAnswerBx .analysisBx .answerCon',
         '.analysisBx .answerCon',
         '.mark_answer .mark_analysis',
@@ -4315,6 +3092,24 @@ define("extractors/common-answer", ["require", "exports", "utils/dom", "extracto
     }
     function extractAnalysis(container) {
         return extractFirstContent(container, ANALYSIS_SELECTORS);
+    }
+    /**
+     * 从「教师批阅结果」推断正确答案。
+     *
+     * 章节测验「已完成 / 已批阅」视图只在每题下用图标给出批阅结果（`.marking_dui` 正确 /
+     * `.marking_cuo` 错误 / `.marking_bandui` 部分正确），**不输出「正确答案」文本**。
+     * 批阅正确说明该题我的答案与标准答案一致，此时用我的答案回填，否则导出的「答案汇总」
+     * 会整页变成「（未找到答案）」，期末复习没有意义。
+     *
+     * 只在拿不到正确答案文本时介入（调用方负责判断），页面本身有正确答案时行为不变；
+     * 批阅错误 / 部分正确时不回填，避免把错的答案当成标准答案。
+     */
+    function inferCorrectAnswerFromGrading(container, userAnswer) {
+        if ((0, rich_content_3.isRichContentEmpty)(userAnswer))
+            return [];
+        if (!container.querySelector('.marking_dui'))
+            return [];
+        return userAnswer;
     }
 });
 define("utils/hash", ["require", "exports"], function (require, exports) {
@@ -4758,10 +3553,114 @@ define("extractors/question-li-extractor", ["require", "exports", "utils/dom", "
     }
     exports.QuestionLiExtractor = QuestionLiExtractor;
 });
-define("extractors/timu-extractor", ["require", "exports", "utils/dom", "extractors/answer-comparison", "extractors/common-answer", "extractors/option-parser", "extractors/question-factory", "extractors/question-stem", "extractors/question-type"], function (require, exports, dom_6, answer_comparison_5, common_answer_4, option_parser_5, question_factory_4, question_stem_4, question_type_4) {
+define("extractors/timu-extractor", ["require", "exports", "utils/dom", "extractors/answer-comparison", "extractors/common-answer", "extractors/option-parser", "extractors/question-factory", "extractors/question-stem", "extractors/question-type", "extractors/rich-content"], function (require, exports, dom_6, answer_comparison_5, common_answer_4, option_parser_5, question_factory_4, question_stem_4, question_type_4, rich_content_6) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    exports.TiMuExtractor = void 0;
+    exports.TiMuExtractor = exports.TIMU_OPTION_SELECTORS = void 0;
+    /**
+     * 选项容器候选（当前版本 → 历史版本），命中即用；解析与诊断报告共用同一份，
+     * 新增候选只改这里，不要在两处各写一套。
+     */
+    exports.TIMU_OPTION_SELECTORS = [
+        '.Zy_ulTop.qtDetail > li',
+        '.Zy_ulTop > li',
+        '.answerBg',
+        '.option-list > li',
+    ];
+    /** 「单题块」候选：选项被挪出题目容器时，通常仍留在这几个块里 */
+    const QUESTION_BLOCK_SELECTOR = '.singleQuesId, .questionLi, .mark_item';
+    /** 页面给每道题标的 qid（形如 405842140）：跨容器找选项时用它精确定位，不会串题 */
+    function resolveQuestionId(container) {
+        const block = container.closest(QUESTION_BLOCK_SELECTOR);
+        const candidates = [
+            container.getAttribute('qid'),
+            container.getAttribute('data-qid'),
+            block?.getAttribute('data'),
+            block?.getAttribute('id'),
+            container.getAttribute('id'),
+            container.querySelector('input[id^="answer"]')?.getAttribute('id'),
+            container.querySelector('li[qid]')?.getAttribute('qid'),
+        ];
+        for (const raw of candidates) {
+            // 要求至少 4 位数字，避免把 <i class="fl">1</i> 这类题号当成 qid
+            const matched = (raw ?? '').match(/\d{4,}/u);
+            if (matched)
+                return matched[0];
+        }
+        return '';
+    }
+    /** 按 qid 取该题的选项节点（只认页面自己标的 qid） */
+    function parseOptionsByQuestionId(scope, qid) {
+        for (const selector of [`li[qid="${qid}"]`, `li[data-qid="${qid}"]`]) {
+            let elements;
+            try {
+                elements = Array.from(scope.querySelectorAll(selector));
+            }
+            catch {
+                continue;
+            }
+            if (elements.length === 0)
+                continue;
+            const options = elements
+                .map((element, index) => (0, option_parser_5.parseLegacyOption)(element, index))
+                .filter((option) => option !== null);
+            if (options.length > 0)
+                return options.sort((left, right) => left.key.localeCompare(right.key));
+        }
+        return [];
+    }
+    /**
+     * 选项解析：先取题目容器内的候选，容器内一个都取不到时向外层逐级兜底。
+     *
+     * 已批阅视图（章节测验「已完成」）的部分版本把选项放在题目容器之外（同级表单 /
+     * 外层单题块里），此时容器内所有候选都会落空，表现为「题目都提取到了、选项一个都没有」
+     * ——即使选项明明显示在页面上。兜底只在容器内确实取不到时触发，命中即用，正常页面不受影响。
+     */
+    function resolveOptions(container) {
+        const direct = (0, option_parser_5.parseOptions)(container, exports.TIMU_OPTION_SELECTORS);
+        if (direct.length > 0)
+            return direct;
+        const block = container.closest(QUESTION_BLOCK_SELECTOR);
+        for (const scope of [block, container.parentElement]) {
+            if (!scope || scope === container)
+                continue;
+            // 只有这一层确实只装了一题时才用类名候选，避免把邻题的选项串进来
+            if (scope.querySelectorAll('.TiMu').length > 1)
+                continue;
+            const options = (0, option_parser_5.parseOptions)(scope, exports.TIMU_OPTION_SELECTORS);
+            if (options.length > 0)
+                return options;
+        }
+        const qid = resolveQuestionId(container);
+        if (qid) {
+            for (const scope of [block, container.parentElement, container.ownerDocument]) {
+                if (!scope)
+                    continue;
+                const options = parseOptionsByQuestionId(scope, qid);
+                if (options.length > 0)
+                    return options;
+            }
+        }
+        return [];
+    }
+    /**
+     * 取题目分组标题（`h3.newTestType`）声明的题型。
+     *
+     * 答题页把分组标题放在 `.aiArea` 的后代里，而已批阅视图（章节测验「已完成」）把它放在
+     * `.aiArea` 之前的兄弟节点上，只查后代会永远落空。落空的后果是：题干里没有
+     * 「【单选题】」这类标记时（例如填空题）整题被丢弃，因此这里补上兄弟节点查找。
+     */
+    function resolveGroupType(area) {
+        const explicit = (0, question_type_4.detectQuestionType)((0, dom_6.textOf)(area.querySelector('.newTestType')), area.getAttribute('data-question-type'));
+        if (explicit)
+            return explicit;
+        // 向上找最近的一个分组标题：标题与它后面的若干 .aiArea 是同级兄弟
+        for (let sibling = area.previousElementSibling; sibling; sibling = sibling.previousElementSibling) {
+            if (sibling.matches('.newTestType'))
+                return (0, question_type_4.detectQuestionType)((0, dom_6.textOf)(sibling));
+        }
+        return null;
+    }
     class TiMuExtractor {
         constructor() {
             this.id = 'timu';
@@ -4783,8 +3682,7 @@ define("extractors/timu-extractor", ["require", "exports", "utils/dom", "extract
             }
             let currentType = null;
             for (const area of areas) {
-                currentType =
-                    (0, question_type_4.detectQuestionType)((0, dom_6.textOf)(area.querySelector('.newTestType')), area.getAttribute('data-question-type')) ?? currentType;
+                currentType = resolveGroupType(area) ?? currentType;
                 area.querySelectorAll('.TiMu.newTiMu, .TiMu').forEach((container) => {
                     const question = this.extractQuestion(container, currentType, context);
                     if (question)
@@ -4802,19 +3700,19 @@ define("extractors/timu-extractor", ["require", "exports", "utils/dom", "extract
                 return null;
             // 题干经分层定位，避免学习通改版换掉题干类名后整题被丢弃
             const stem = (0, question_stem_4.resolveQuestionStem)(container, title);
+            // 「已批阅」视图没有正确答案文本，只有批阅结果图标，拿不到答案时按批阅结果推断
+            const userAnswer = (0, common_answer_4.extractUserAnswer)(container);
+            const correctAnswer = (0, common_answer_4.extractCorrectAnswer)(container);
             return (0, question_factory_4.createQuestion)({
                 number: (0, dom_6.parseLeadingNumber)((0, dom_6.textOf)(title.querySelector('i.fl')) || stem.rawText),
                 type,
                 typeMeta: (0, dom_6.textOf)(title.querySelector('.newZy_TItle')) || undefined,
                 stem: stem.content,
-                options: (0, option_parser_5.parseOptions)(container, [
-                    '.Zy_ulTop.qtDetail > li',
-                    '.Zy_ulTop > li',
-                    '.answerBg',
-                    '.option-list > li',
-                ]),
-                correctAnswer: (0, common_answer_4.extractCorrectAnswer)(container),
-                userAnswer: (0, common_answer_4.extractUserAnswer)(container),
+                options: resolveOptions(container),
+                correctAnswer: (0, rich_content_6.isRichContentEmpty)(correctAnswer)
+                    ? (0, common_answer_4.inferCorrectAnswerFromGrading)(container, userAnswer)
+                    : correctAnswer,
+                userAnswer,
                 analysis: (0, common_answer_4.extractAnalysis)(container),
                 explicitWrong: (0, answer_comparison_5.hasExplicitWrongMarker)(container),
                 source: {
@@ -4876,25 +3774,1693 @@ define("extractors/composite-extractor", ["require", "exports", "domain/question
     }
     exports.CompositeExtractor = CompositeExtractor;
 });
+define("extractors/dom-diagnostics", ["require", "exports", "utils/dom", "extractors/composite-extractor", "extractors/cxsecret-decoder", "extractors/option-parser", "extractors/question-stem", "extractors/rich-content", "extractors/timu-extractor"], function (require, exports, dom_7, composite_extractor_1, cxsecret_decoder_2, option_parser_6, question_stem_5, rich_content_7, timu_extractor_2) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.buildExtractionDiagnostics = buildExtractionDiagnostics;
+    // 报告总长度上限与各块截断长度：只保留判断结构所需的信息
+    const MAX_REPORT_CHARS = 9000;
+    const MAX_QUESTIONS_PER_DOC = 6;
+    const MAX_OUTLINE_DEPTH = 3;
+    /** 一个文档里可能承载题目的容器，与各提取器的 supports() 保持一致 */
+    const QUESTION_CONTAINER_SELECTORS = [
+        '.TiMu.newTiMu',
+        '.TiMu',
+        '.questionLi',
+        '.mark_item',
+        '.answerBg',
+    ];
+    /** 题目容器的外层结构：选项若不在题目容器里，最可能落在这一层 */
+    const QUESTION_SCOPE_SELECTORS = ['.singleQuesId', '.questionLi', '.mark_item'];
+    /** 需要选项才算完整的题型（此处就地判断，避免反向依赖应用层） */
+    const CHOICE_TYPES = new Set(['single-choice', 'multiple-choice']);
+    function safeQuery(root, selector) {
+        try {
+            return root.querySelector(selector);
+        }
+        catch {
+            return null;
+        }
+    }
+    function safeQueryAllCount(root, selector) {
+        try {
+            return root.querySelectorAll(selector).length;
+        }
+        catch {
+            return -1;
+        }
+    }
+    /** 空白折叠 + 截断，便于把结构压进一行 */
+    function clip(value, limit) {
+        const text = value.replace(/\s+/gu, ' ').trim();
+        return text.length <= limit ? text : `${text.slice(0, limit)}…(+${text.length - limit}字)`;
+    }
+    function describeElement(element) {
+        const tag = element.tagName.toLowerCase();
+        const id = element.getAttribute('id');
+        const className = (element.getAttribute('class') ?? '').trim().replace(/\s+/gu, '.');
+        return `${tag}${id ? `#${id}` : ''}${className ? `.${className}` : ''}`;
+    }
+    /**
+     * 元素文本：走与提取相同的富文本管道（含 cxsecret 还原）。
+     * 直接读 textContent 拿到的是字体反爬的混淆码位，报告里会满屏乱码、无法核对。
+     */
+    function readableText(element) {
+        if (!element)
+            return '';
+        return (0, rich_content_7.richContentToText)((0, rich_content_7.extractRichContent)(element));
+    }
+    /** 元素结构速览：标签.类名 > 子元素；深度与节点数都受限，足以看出选项容器在不在 */
+    function outline(node, depth, budget) {
+        if (budget.left <= 0)
+            return '…';
+        budget.left -= 1;
+        const name = describeElement(node);
+        const children = Array.from(node.children);
+        if (children.length === 0)
+            return name;
+        if (depth <= 1)
+            return `${name}(+${children.length} 个子元素)`;
+        const parts = [];
+        for (const child of children) {
+            if (budget.left <= 0) {
+                parts.push('…');
+                break;
+            }
+            parts.push(outline(child, depth - 1, budget));
+        }
+        return `${name} > [${parts.join(', ')}]`;
+    }
+    /** 题目的 qid：答题页放在 .singleQuesId 的 id/属性上，用于跨容器找选项 */
+    function resolveQuestionId(container) {
+        const scope = container.closest('.singleQuesId') ?? container;
+        const raw = [scope.getAttribute('id'), scope.getAttribute('data'), container.getAttribute('data')]
+            .filter(Boolean)
+            .join(' ');
+        return raw.match(/\d{4,}/u)?.[0] ?? '(无)';
+    }
+    /** 逐候选选择器统计容器内的选项节点数，命中即说明该候选可用 */
+    function describeOptionCounts(container) {
+        return [...timu_extractor_2.TIMU_OPTION_SELECTORS, ...option_parser_6.FALLBACK_OPTION_SELECTORS]
+            .map((selector) => `${selector}=${safeQueryAllCount(container, selector)}`)
+            .join(' ');
+    }
+    /** 选项节点总数（容器内任一候选命中即为该题选项） */
+    function optionNodeCount(container) {
+        for (const selector of [...timu_extractor_2.TIMU_OPTION_SELECTORS, ...option_parser_6.FALLBACK_OPTION_SELECTORS]) {
+            const count = safeQueryAllCount(container, selector);
+            if (count > 0)
+                return count;
+        }
+        return 0;
+    }
+    /**
+     * 容器内实际解析出的选项条数（走与提取完全相同的管道）。
+     *
+     * 与「候选命中数」对照即可把成因分成两类：命中数为 0 是选择器没命中；
+     * 命中数大于 0、解析数为 0，则是节点找到了但读不出文字（历史真机现场即此类）。
+     */
+    function parsedOptionCount(container) {
+        try {
+            return (0, option_parser_6.parseOptions)(container, timu_extractor_2.TIMU_OPTION_SELECTORS).length;
+        }
+        catch {
+            return -1;
+        }
+    }
+    /** 单题的诊断块：容器、qid、题干来源、选项计数与结构速览 */
+    function describeQuestion(container, index) {
+        const matched = QUESTION_CONTAINER_SELECTORS.find((selector) => {
+            try {
+                return container.matches(selector);
+            }
+            catch {
+                return false;
+            }
+        }) ?? '(未匹配已知容器)';
+        const title = safeQuery(container, '.Zy_TItle, .question-title') ?? container;
+        const stemElement = (0, dom_7.firstMatch)(title, question_stem_5.STEM_CONTAINER_SELECTORS) ?? (0, dom_7.firstMatch)(container, question_stem_5.STEM_CONTAINER_SELECTORS);
+        const stemSelector = question_stem_5.STEM_CONTAINER_SELECTORS.find((selector) => safeQuery(title, selector) !== null) ??
+            question_stem_5.STEM_CONTAINER_SELECTORS.find((selector) => safeQuery(container, selector) !== null) ??
+            '(未命中，走兜底)';
+        const qid = resolveQuestionId(container);
+        const options = optionNodeCount(container);
+        const parsed = parsedOptionCount(container);
+        const head = `  ${index + 1}) 容器=${matched} qid=${qid} 题干来源=${stemSelector} ` +
+            `题干=${clip(readableText(stemElement), 60) || '(空)'}`;
+        const counts = `     容器内选项计数: ${describeOptionCounts(container)} 解析出选项=${parsed} 条`;
+        // 节点命中且能解析出选项：该题选项链路正常，无需展开结构
+        if (options > 0 && parsed > 0) {
+            return [head, counts];
+        }
+        // 其余情况展开结构。同时打印「原样 textContent」与「提取管道读出的文本」：
+        // 原文有文字、管道为空，即说明文字确实在节点里、只是没被提取管道读到
+        // （历史上这条差异来自跨 window 的构造器判定，见 rich-content.ts 的 isElementNode）。
+        const lines = [head, counts];
+        const items = Array.from(container.querySelectorAll('li')).slice(0, 8);
+        const raw = items.map((item) => clip(item.textContent ?? '', 24) || '(空)');
+        const piped = items.map((item) => clip(readableText(item), 24) || '(空)');
+        lines.push(`     容器内 li 原文(${container.querySelectorAll('li').length} 个): ${raw.join(' | ') || '(无)'}`);
+        lines.push(`     容器内 li 管道: ${piped.join(' | ') || '(无)'}`);
+        for (const selector of QUESTION_SCOPE_SELECTORS) {
+            const scope = container.closest(selector);
+            if (!scope || scope === container)
+                continue;
+            lines.push(`     外层 ${selector}: 选项计数 ${describeOptionCounts(scope)}`);
+            lines.push(`     外层结构: ${clip(outline(scope, MAX_OUTLINE_DEPTH, { left: 26 }), 700)}`);
+        }
+        if (qid !== '(无)') {
+            const owner = container.ownerDocument;
+            const byQid = safeQueryAllCount(owner, `li[qid="${qid}"]`);
+            const byData = safeQueryAllCount(owner, `li[data-qid="${qid}"]`);
+            lines.push(`     按 qid 全文档查找: li[qid]=${byQid} li[data-qid]=${byData}` +
+                `（>0 说明选项在题目容器之外）`);
+        }
+        lines.push(`     容器结构: ${clip(outline(container, MAX_OUTLINE_DEPTH, { left: 26 }), 900)}`);
+        return lines;
+    }
+    /** 单个文档的诊断块 */
+    function describeDocument(root, depth, extractor) {
+        const url = (() => {
+            try {
+                return root.location?.href ?? '(无 url)';
+            }
+            catch {
+                return '(跨域)';
+            }
+        })();
+        const decoder = (0, cxsecret_decoder_2.getCxSecretDecoder)(root);
+        const containers = [];
+        for (const selector of QUESTION_CONTAINER_SELECTORS) {
+            const found = Array.from(root.querySelectorAll(selector));
+            for (const element of found)
+                if (!containers.includes(element))
+                    containers.push(element);
+        }
+        const lines = [
+            `[L${depth}] readyState=${root.readyState ?? '未知'} 题目容器=${QUESTION_CONTAINER_SELECTORS.map((selector) => `${selector}×${safeQueryAllCount(root, selector)}`).join(' ')}`,
+            `     cxsecret: 作用域标记=${decoder ? (decoder.scoped ? '有' : '无') : '无字体'} 解码表=${decoder?.size ?? 0} 条`,
+            `     url=${clip(url, 120)}`,
+        ];
+        const result = extractor.extract(root);
+        if (result) {
+            const missing = result.questions.filter((question) => CHOICE_TYPES.has(question.type) && question.options.length === 0).length;
+            lines.push(`     链路自检: 提取器=${result.extractor} 题数=${result.questions.length} ` +
+                `选项总数=${result.questions.reduce((total, question) => total + question.options.length, 0)} ` +
+                `缺选项选择题=${missing}`);
+        }
+        else {
+            lines.push('     链路自检: 该文档未提取到题目');
+        }
+        containers.slice(0, MAX_QUESTIONS_PER_DOC).forEach((container, index) => {
+            lines.push(...describeQuestion(container, index));
+        });
+        if (containers.length > MAX_QUESTIONS_PER_DOC) {
+            lines.push(`  （其余 ${containers.length - MAX_QUESTIONS_PER_DOC} 个题目容器已省略）`);
+        }
+        return lines;
+    }
+    /**
+     * 生成当前页面的提取诊断报告。
+     * 报告包含：各层文档（含同源 iframe）的就绪状态、题目容器数量、逐题的选项候选命中数、
+     * 容器/外层结构速览、以及提取链路自检结果。
+     */
+    function buildExtractionDiagnostics(options = {}) {
+        const root = options.root ?? (typeof document === 'undefined' ? null : document);
+        const lines = [
+            `=== 学习通题目导出 · 提取诊断 ${options.version ? `v${options.version} ` : ''}${new Date().toISOString()} ===`,
+            '说明：把整段内容复制回传，即可定位「提取到题干、提取不到选项」的成因。',
+            '读法：每题的「解析出选项」= 提取管道真正读出的选项条数；候选命中数>0 而解析数=0，',
+            '说明节点找到了但读不出文字。「li 原文」是未处理的 textContent、「li 管道」是提取管道读到的',
+            '文本，原文有而管道为空即属此类（字体反爬页面的原文会是混淆码位，以管道为准）。',
+        ];
+        if (!root) {
+            lines.push('（当前环境没有 document，无法诊断）');
+            return lines.join('\n');
+        }
+        const extractor = new composite_extractor_1.CompositeExtractor();
+        for (const { document: current, depth } of (0, dom_7.collectAccessibleDocuments)(root)) {
+            lines.push(...describeDocument(current, depth, extractor));
+        }
+        const report = lines.join('\n');
+        if (report.length <= MAX_REPORT_CHARS)
+            return report;
+        return `${report.slice(0, MAX_REPORT_CHARS)}\n…（报告已截断）`;
+    }
+});
+define("exporters/legacy-bridge", ["require", "exports"], function (require, exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.emptyLegacyResults = emptyLegacyResults;
+    exports.hasRichContent = hasRichContent;
+    exports.normalizeRichContent = normalizeRichContent;
+    exports.richContentToText = richContentToText;
+    exports.questionContent = questionContent;
+    exports.optionContent = optionContent;
+    exports.answerContent = answerContent;
+    exports.escapeMarkdownAlt = escapeMarkdownAlt;
+    exports.escapeMarkdownUrl = escapeMarkdownUrl;
+    exports.formatRichForText = formatRichForText;
+    exports.formatRichForMD = formatRichForMD;
+    exports.richTextOnly = richTextOnly;
+    exports.shuffleQuestions = shuffleQuestions;
+    exports.toLegacyResult = toLegacyResult;
+    exports.toLegacyChapter = toLegacyChapter;
+    // QuestionType → 原版中文题型键映射
+    const TYPE_KEY_MAP = {
+        'single-choice': '单选',
+        'multiple-choice': '多选',
+        'fill-blank': '填空',
+        'true-false': '判断',
+        'short-answer': '简答',
+    };
+    // 创建原版结构的空题目集合（五种题型各一个空数组）
+    function emptyLegacyResults() {
+        return { '单选': [], '多选': [], '填空': [], '判断': [], '简答': [] };
+    }
+    // ==================== 原版富文本辅助函数（逐行移植） ====================
+    // 判断富文本是否有实质内容（文本或图片）
+    function hasRichContent(content) {
+        return (content || []).some((part) => part.type === 'image' || (part.type === 'text' && part.text.trim().length > 0));
+    }
+    // 规范化富文本数组：合并相邻文本节点、去首尾空行、压缩空白
+    function normalizeRichContent(parts) {
+        const normalized = [];
+        const pushText = (part) => {
+            if (!part.text)
+                return;
+            const value = part.text.replace(/\u00a0/g, ' ').replace(/[ \t\r\f]+/g, ' ');
+            if (!value)
+                return;
+            const last = normalized[normalized.length - 1];
+            // 合并相邻文本，保留第一个 part 的格式属性
+            if (last && last.type === 'text') {
+                normalized[normalized.length - 1] = { ...last, text: last.text + value };
+            }
+            else {
+                normalized.push({
+                    type: 'text',
+                    text: value,
+                    bold: part.bold,
+                    italic: part.italic,
+                    subScript: part.subScript,
+                    superScript: part.superScript,
+                });
+            }
+        };
+        const pushBreak = () => {
+            const last = normalized[normalized.length - 1];
+            if (!last || last.type !== 'break')
+                normalized.push({ type: 'break' });
+        };
+        for (const part of parts || []) {
+            if (!part)
+                continue;
+            if (part.type === 'text') {
+                pushText(part);
+            }
+            else if (part.type === 'image' && part.url) {
+                normalized.push(part);
+            }
+            else if (part.type === 'break') {
+                pushBreak();
+            }
+        }
+        // 修剪首尾的换行与纯空白文本：尾部空白会挡住相邻换行，导致 Word 导出时题目与选项之间出现多余空行
+        const isTrimmable = (part) => {
+            if (!part)
+                return false;
+            return part.type === 'break' || (part.type === 'text' && !part.text.trim());
+        };
+        while (isTrimmable(normalized[0]))
+            normalized.shift();
+        while (isTrimmable(normalized[normalized.length - 1]))
+            normalized.pop();
+        return normalized;
+    }
+    // 将富文本数组转为纯文本，图片通过回调格式化
+    function richContentToText(content, imageFormatter) {
+        let text = '';
+        for (const part of content || []) {
+            if (part.type === 'text')
+                text += part.text;
+            else if (part.type === 'image')
+                text += imageFormatter ? imageFormatter(part.url, part) : '';
+            else if (part.type === 'break')
+                text += '\n';
+        }
+        return text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    }
+    // 适配器：兼容新旧数据格式，统一返回富文本数组
+    function questionContent(q) {
+        if (hasRichContent(q.stemContent))
+            return q.stemContent;
+        const parts = q.stem ? [{ type: 'text', text: q.stem }] : [];
+        if (q.images && q.images.length) {
+            q.images.forEach((url) => parts.push({ type: 'break' }, { type: 'image', url, alt: '' }));
+        }
+        return normalizeRichContent(parts);
+    }
+    function optionContent(opt) {
+        if (hasRichContent(opt.content))
+            return opt.content;
+        return opt.text ? [{ type: 'text', text: opt.text }] : [];
+    }
+    function answerContent(q) {
+        if (hasRichContent(q.correctAnswerContent))
+            return q.correctAnswerContent;
+        return q.correctAnswer ? [{ type: 'text', text: q.correctAnswer }] : [];
+    }
+    // Markdown URL 转义，防止特殊字符破坏图片语法
+    function escapeMarkdownAlt(text) {
+        return (text || '图片').replace(/[[\]\n\r]/g, ' ').trim() || '图片';
+    }
+    function escapeMarkdownUrl(url) {
+        // 编码 URL 中的特殊字符，防止破坏 Markdown 图片语法，保留已编码部分
+        return (url || '').replace(/[()\\]/g, (ch) => '%' + ch.charCodeAt(0).toString(16).toUpperCase());
+    }
+    // 富文本格式化：TXT/MD 分别处理
+    function formatRichForText(content) {
+        return richContentToText(content, (url) => `\n[图片: ${url}]\n`);
+    }
+    function formatRichForMD(content) {
+        return richContentToText(content, (url, part) => `\n![${escapeMarkdownAlt(part.alt)}](${escapeMarkdownUrl(url)})\n`);
+    }
+    // 富文本转纯文本（忽略图片）
+    function richTextOnly(content) {
+        return richContentToText(content || [], () => '').replace(/\s+/g, ' ').trim();
+    }
+    // Fisher-Yates 洗牌算法，同类型题目内部打乱
+    function shuffleQuestions(results, typeOrder) {
+        const shuffled = emptyLegacyResults();
+        for (const qtype of typeOrder) {
+            const arr = [...(results[qtype] || [])];
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                // Fisher-Yates 交换（noUncheckedIndexedAccess 下需显式判空）
+                const left = arr[i];
+                const right = arr[j];
+                if (left && right) {
+                    arr[i] = right;
+                    arr[j] = left;
+                }
+            }
+            shuffled[qtype] = arr;
+        }
+        return shuffled;
+    }
+    // ==================== 领域模型 → 原版结构转换 ====================
+    // 将 TS 领域模型的单题转换为原版题目结构
+    function toLegacyQuestion(question) {
+        return {
+            stem: formatRichForText(question.stem),
+            stemContent: question.stem,
+            typeMeta: question.typeMeta,
+            options: question.options.map((option) => ({
+                letter: option.key,
+                text: richTextOnly(option.content),
+                content: option.content,
+            })),
+            correctAnswer: richContentToText(question.correctAnswer, () => '')
+                .replace(/\s+/g, ' ')
+                .trim(),
+            correctAnswerContent: question.correctAnswer,
+            myAnswer: richTextOnly(question.userAnswer),
+            isWrong: question.isWrong,
+        };
+    }
+    // 将 TS 领域模型结果转换为原版提取数据结构（全部题目按题型合并）
+    function toLegacyResult(result) {
+        const results = emptyLegacyResults();
+        for (const question of result.questions) {
+            results[TYPE_KEY_MAP[question.type]].push(toLegacyQuestion(question));
+        }
+        const typeOrder = result.typeOrder.map((type) => TYPE_KEY_MAP[type]);
+        return {
+            title: result.title,
+            results,
+            typeOrder,
+            wrongCount: result.statistics.wrong,
+            hasMyAnswer: result.statistics.withUserAnswer > 0,
+            hasCorrectAnswer: result.statistics.withCorrectAnswer > 0,
+        };
+    }
+    // 将 TS 章节数据转换为原版分章节数据结构
+    function toLegacyChapter(chapter) {
+        const results = emptyLegacyResults();
+        for (const question of chapter.questions) {
+            results[TYPE_KEY_MAP[question.type]].push(toLegacyQuestion(question));
+        }
+        const typeOrder = chapter.typeOrder.map((type) => TYPE_KEY_MAP[type]);
+        return {
+            title: chapter.title,
+            results,
+            typeOrder,
+            wrongCount: chapter.statistics.wrong,
+            hasMyAnswer: chapter.statistics.withUserAnswer > 0,
+            hasCorrectAnswer: chapter.statistics.withCorrectAnswer > 0,
+        };
+    }
+});
+define("exporters/text-formatter", ["require", "exports", "exporters/legacy-bridge"], function (require, exports, legacy_bridge_1) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.formatOutput = formatOutput;
+    exports.formatAnswersTXT = formatAnswersTXT;
+    exports.formatOutputWithAnswers = formatOutputWithAnswers;
+    exports.formatWrongQuestionsTXT = formatWrongQuestionsTXT;
+    // ==================== TXT 格式化（富文本） ====================
+    function formatOutput(results, typeOrder) {
+        const typeLabels = {
+            单选: '单选题',
+            多选: '多选题',
+            填空: '填空题',
+            判断: '判断题',
+            简答: '简答题',
+        };
+        const typeNumbers = ['一', '二', '三', '四', '五', '六'];
+        let output = '';
+        let globalNum = 0;
+        let sectionIdx = 0;
+        for (const qtype of typeOrder) {
+            const questions = results[qtype];
+            if (!questions || questions.length === 0)
+                continue;
+            const label = typeLabels[qtype] ?? qtype;
+            const num = typeNumbers[sectionIdx] || sectionIdx + 1;
+            output += `${num}. ${label}（共${questions.length}题）\n`;
+            for (const q of questions) {
+                globalNum++;
+                output += `${globalNum}. ${(0, legacy_bridge_1.formatRichForText)((0, legacy_bridge_1.questionContent)(q))}\n`;
+                if (q.options && q.options.length > 0) {
+                    for (const opt of q.options) {
+                        output += `${opt.letter}. ${(0, legacy_bridge_1.formatRichForText)((0, legacy_bridge_1.optionContent)(opt))}\n`;
+                    }
+                }
+                output += '\n';
+            }
+            sectionIdx++;
+        }
+        return output.trim();
+    }
+    function formatAnswersTXT(results, typeOrder) {
+        const typeLabels = {
+            单选: '单选题',
+            多选: '多选题',
+            填空: '填空题',
+            判断: '判断题',
+            简答: '简答题',
+        };
+        const typeNumbers = ['一', '二', '三', '四', '五', '六'];
+        let output = '';
+        let globalNum = 0;
+        let sectionIdx = 0;
+        for (const qtype of typeOrder) {
+            const questions = results[qtype];
+            if (!questions || questions.length === 0)
+                continue;
+            const num = typeNumbers[sectionIdx] || sectionIdx + 1;
+            output += `${num}、${typeLabels[qtype] ?? qtype}\n\n`;
+            sectionIdx++;
+            for (const q of questions) {
+                globalNum++;
+                const answer = (0, legacy_bridge_1.formatRichForText)((0, legacy_bridge_1.answerContent)(q)) || '（未找到答案）';
+                if (qtype === '填空' && answer.includes('；')) {
+                    const parts = answer.split('；').map((p) => p.trim().replace(/^\(\d+\)\s*/, ''));
+                    output += `${globalNum}. \n`;
+                    parts.forEach((part, i) => {
+                        output += `(${i + 1}) ${part}\n`;
+                    });
+                    output += '\n';
+                }
+                else {
+                    output += `${globalNum}. ${answer}\n\n`;
+                }
+            }
+        }
+        return output.trim();
+    }
+    function formatOutputWithAnswers(results, typeOrder) {
+        let output = formatOutput(results, typeOrder);
+        output += '\n\n\n';
+        output += '========================================\n';
+        output += '              答案汇总\n';
+        output += '========================================\n\n';
+        output += formatAnswersTXT(results, typeOrder);
+        return output.trim();
+    }
+    function formatWrongQuestionsTXT(results, typeOrder) {
+        let output = '';
+        output += '\n\n\n';
+        output += '========================================\n';
+        output += '              错题汇总\n';
+        output += '========================================\n\n';
+        let globalNum = 0;
+        for (const qtype of typeOrder) {
+            const questions = results[qtype];
+            if (!questions || questions.length === 0)
+                continue;
+            if (qtype === '简答') {
+                globalNum += questions.length;
+                continue;
+            }
+            for (const q of questions) {
+                globalNum++;
+                if (!q.isWrong)
+                    continue;
+                const typeLabel = qtype === '填空' ? '填空题' : '题目';
+                output += `${globalNum}. (${typeLabel})${(0, legacy_bridge_1.formatRichForText)((0, legacy_bridge_1.questionContent)(q))}\n`;
+                output += `   我的答案: ${q.myAnswer || '无'}\n`;
+                output += `   正确答案: ${(0, legacy_bridge_1.formatRichForText)((0, legacy_bridge_1.answerContent)(q)) || '（未找到答案）'}\n\n`;
+            }
+        }
+        return output.replace(/\n+$/, '');
+    }
+});
+define("exporters/markdown-formatter", ["require", "exports", "exporters/legacy-bridge"], function (require, exports, legacy_bridge_2) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.formatOutputMD = formatOutputMD;
+    exports.formatAnswersMD = formatAnswersMD;
+    exports.formatOutputWithAnswersMD = formatOutputWithAnswersMD;
+    exports.formatWrongQuestionsMD = formatWrongQuestionsMD;
+    // ==================== Markdown 格式化（富文本） ====================
+    function formatOutputMD(results, typeOrder) {
+        const typeLabels = {
+            单选: '单选题',
+            多选: '多选题',
+            填空: '填空题',
+            判断: '判断题',
+            简答: '简答题',
+        };
+        const typeNumbers = ['一', '二', '三', '四', '五', '六'];
+        let output = '';
+        let globalNum = 0;
+        let sectionIdx = 0;
+        for (const qtype of typeOrder) {
+            const questions = results[qtype];
+            if (!questions || questions.length === 0)
+                continue;
+            const label = typeLabels[qtype] ?? qtype;
+            const num = typeNumbers[sectionIdx] || sectionIdx + 1;
+            output += `### ${num}、${label}（共${questions.length}题）\n\n`;
+            for (const q of questions) {
+                globalNum++;
+                output += `**${globalNum}.** ${(0, legacy_bridge_2.formatRichForMD)((0, legacy_bridge_2.questionContent)(q))}\n\n`;
+                if (q.options && q.options.length > 0) {
+                    for (const opt of q.options) {
+                        output += `- ${opt.letter}. ${(0, legacy_bridge_2.formatRichForMD)((0, legacy_bridge_2.optionContent)(opt))}\n`;
+                    }
+                    output += '\n';
+                }
+                else {
+                    output += '\n';
+                }
+            }
+            sectionIdx++;
+        }
+        return output.trim();
+    }
+    function formatAnswersMD(results, typeOrder) {
+        let output = '';
+        let globalNum = 0;
+        for (const qtype of typeOrder) {
+            const questions = results[qtype];
+            if (!questions || questions.length === 0)
+                continue;
+            const typeLabels = {
+                单选: '单选题',
+                多选: '多选题',
+                填空: '填空题',
+                判断: '判断题',
+                简答: '简答题',
+            };
+            output += `**${typeLabels[qtype] ?? qtype}**\n\n`;
+            for (const q of questions) {
+                globalNum++;
+                const answer = (0, legacy_bridge_2.formatRichForMD)((0, legacy_bridge_2.answerContent)(q)) || '（未找到答案）';
+                if (qtype === '填空' && answer.includes('；')) {
+                    const parts = answer.split('；').map((p) => p.trim().replace(/^\(\d+\)\s*/, ''));
+                    output += `${globalNum}.  \n`;
+                    parts.forEach((part, i) => {
+                        output += `    (${i + 1}) ${part}  \n`;
+                    });
+                    output += '\n';
+                }
+                else {
+                    output += `${globalNum}. ${answer}  \n`;
+                }
+            }
+            output += '\n';
+        }
+        return output.trim();
+    }
+    function formatOutputWithAnswersMD(results, typeOrder) {
+        let output = formatOutputMD(results, typeOrder);
+        output += '\n\n---\n\n';
+        output += '## 答案汇总\n\n';
+        output += formatAnswersMD(results, typeOrder);
+        return output.trim();
+    }
+    function formatWrongQuestionsMD(results, typeOrder) {
+        let output = '\n\n\n---\n\n';
+        output += '## 错题汇总\n\n';
+        let globalNum = 0;
+        for (const qtype of typeOrder) {
+            const questions = results[qtype];
+            if (!questions || questions.length === 0)
+                continue;
+            if (qtype === '简答') {
+                globalNum += questions.length;
+                continue;
+            }
+            for (const q of questions) {
+                globalNum++;
+                if (!q.isWrong)
+                    continue;
+                output += `**${globalNum}.** ${(0, legacy_bridge_2.formatRichForMD)((0, legacy_bridge_2.questionContent)(q))}\n\n`;
+                output += `- 我的答案: ${q.myAnswer || '无'}\n`;
+                output += `- 正确答案: ${(0, legacy_bridge_2.formatRichForMD)((0, legacy_bridge_2.answerContent)(q)) || '（未找到答案）'}\n\n`;
+            }
+        }
+        return output.replace(/\n+$/, '');
+    }
+});
+define("exporters/word-plan", ["require", "exports", "exporters/legacy-bridge"], function (require, exports, legacy_bridge_3) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.planWordDocuments = planWordDocuments;
+    /** 去掉用户可能输入的扩展名，得到输出文件的基础名（与 TXT/MD 导出规则一致） */
+    function baseName(result, options) {
+        return (options.filename || result.title || '学习通题目').replace(/\.(txt|md|docx)$/, '');
+    }
+    /** 章节名可能含路径分隔符等文件名非法字符，替换后再落盘 */
+    function safeChapterTitle(title, index) {
+        return (title || `章节${index + 1}`).replace(/[\\/:*?"<>|]/g, '_');
+    }
+    function toSection(chapter, shuffle) {
+        return {
+            title: chapter.title,
+            results: shuffle ? (0, legacy_bridge_3.shuffleQuestions)(chapter.results, chapter.typeOrder) : chapter.results,
+            typeOrder: chapter.typeOrder,
+        };
+    }
+    /**
+     * 规划本次 Word 导出要产出哪些文件：
+     * - 勾选「按章节拆分文件」且结果是多章节 → **一章一个 .docx**（与 TXT/Markdown 行为一致）；
+     * - 否则只产出一个 .docx：**多章节时正文按「章节 → 题型」分节**，单章节时与原先完全一致。
+     *
+     * 题库导入（智能导入）格式不认章节标题，所以多章节时也不在单文件里插章节标题，
+     * 只按需要拆文件——拆出来的每个文件仍然只有一章的题目。
+     */
+    function planWordDocuments(result, options) {
+        const base = baseName(result, options);
+        // 题库导入必带答案并禁用打乱，与 export-service 的既有规则保持一致
+        const shuffle = !options.bankImport && options.shuffle;
+        const chapters = result.chapters ?? [];
+        // 分章节下载：每个章节单独一个文件
+        if (options.splitByChapter && chapters.length > 1) {
+            return chapters.map((chapter, index) => {
+                const data = (0, legacy_bridge_3.toLegacyChapter)(chapter);
+                const title = safeChapterTitle(data.title, index);
+                return {
+                    title: data.title || title,
+                    sections: [toSection(data, shuffle)],
+                    filename: `${base}_${index + 1}_${title}.docx`,
+                };
+            });
+        }
+        const legacy = (0, legacy_bridge_3.toLegacyResult)(result);
+        // 多章节单文件：正文按章节分节，避免把各章节的同题型题目混在同一大题里
+        const groupedByChapter = chapters.length > 1 && !options.bankImport;
+        const sections = groupedByChapter
+            ? chapters.map((chapter) => toSection((0, legacy_bridge_3.toLegacyChapter)(chapter), shuffle))
+            : [
+                {
+                    title: legacy.title,
+                    results: shuffle ? (0, legacy_bridge_3.shuffleQuestions)(legacy.results, legacy.typeOrder) : legacy.results,
+                    typeOrder: legacy.typeOrder,
+                },
+            ];
+        return [{ title: legacy.title, sections, filename: `${base}.docx` }];
+    }
+});
+define("exporters/word-exporter", ["require", "exports", "exporters/legacy-bridge"], function (require, exports, legacy_bridge_4) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.WORD_MIME = void 0;
+    exports.generateWordBlob = generateWordBlob;
+    exports.WORD_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    // ==================== Word 文档生成（富文本） ====================
+    async function fetchImageAsset(url) {
+        if (!url)
+            return null;
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            const resp = await fetch(url, { mode: 'cors', signal: controller.signal });
+            clearTimeout(timeoutId);
+            if (!resp.ok)
+                return null;
+            const blob = await resp.blob();
+            if (!blob.type.startsWith('image/'))
+                return null;
+            const data = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+                reader.onerror = () => resolve(null);
+                reader.readAsDataURL(blob);
+            });
+            if (!data)
+                return null;
+            const size = await new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => resolve({ width: img.naturalWidth || 300, height: img.naturalHeight || 200 });
+                img.onerror = () => resolve({ width: 300, height: 200 });
+                img.src = data;
+            });
+            const typeMap = {
+                'image/png': 'png',
+                'image/jpeg': 'jpg',
+                'image/jpg': 'jpg',
+                'image/gif': 'gif',
+                'image/bmp': 'bmp',
+            };
+            const type = typeMap[blob.type] || 'png';
+            return { data, type, width: size.width, height: size.height };
+        }
+        catch {
+            return null;
+        }
+    }
+    async function buildImageRun(url) {
+        if (!url)
+            return null;
+        const base64 = await fetchImageAsset(url);
+        if (base64) {
+            // 按比例限制最大宽高，避免固定尺寸导致变形
+            const maxWidth = 420;
+            const maxHeight = 260;
+            const scale = Math.min(maxWidth / base64.width, maxHeight / base64.height, 1);
+            return new docx.ImageRun({
+                data: base64,
+                transformation: {
+                    width: Math.round(base64.width * scale),
+                    height: Math.round(base64.height * scale),
+                },
+                type: base64.type,
+            });
+        }
+        // 图片加载失败，记录计数
+        window.__xxt_failed_image_count = (window.__xxt_failed_image_count || 0) + 1;
+        return null;
+    }
+    async function buildRichRuns(content, prefix = '') {
+        const { TextRun } = docx;
+        const runs = [];
+        if (prefix)
+            runs.push(new TextRun({ text: prefix, font: 'Microsoft YaHei', size: 22 }));
+        for (const part of content || []) {
+            if (part.type === 'text') {
+                const normalized = part.text.replace(/\n+/g, ' ');
+                if (normalized) {
+                    runs.push(new TextRun({
+                        text: normalized,
+                        font: 'Microsoft YaHei',
+                        size: 22,
+                        bold: part.bold || false,
+                        italics: part.italic || false,
+                        subScript: part.subScript || false,
+                        superScript: part.superScript || false,
+                    }));
+                }
+            }
+            else if (part.type === 'image') {
+                if (runs.length > 0)
+                    runs.push(new TextRun({ text: ' ', font: 'Microsoft YaHei', size: 22 }));
+                const imgRun = await buildImageRun(part.url);
+                if (imgRun)
+                    runs.push(imgRun);
+                runs.push(new TextRun({ text: ' ', font: 'Microsoft YaHei', size: 22 }));
+            }
+            else if (part.type === 'break') {
+                runs.push(new TextRun({ text: '\n', break: 1, font: 'Microsoft YaHei', size: 22 }));
+            }
+        }
+        return runs.length ? runs : [new TextRun({ text: prefix, font: 'Microsoft YaHei', size: 22 })];
+    }
+    // 将富文本内容构建为带段后间距的 Paragraph 数组（Word 导出用）
+    async function buildRichParagraphs(content, prefix = '', spacing = 0) {
+        const { Paragraph } = docx;
+        const runs = await buildRichRuns(content, prefix);
+        return [
+            new Paragraph({
+                children: runs,
+                spacing: { after: spacing },
+            }),
+        ];
+    }
+    // 清洗答案文本：去除“正确答案:/我的答案:”等标签，避免组合出现
+    function cleanAnswerText(text) {
+        if (!text)
+            return '';
+        return text
+            .replace(/\u00a0/g, ' ')
+            .replace(/\r/g, '\n')
+            .replace(/(?:正确答案|参考答案)[:：]?\s*/g, '')
+            .replace(/(?:我的答案|你的答案|学生答案)[:：]?\s*/g, '')
+            .replace(/^[：:\s]+/, '')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+    }
+    const FONT = 'Microsoft YaHei';
+    // 题型大题头字号（半磅）：比章节标题小一号（章节标题 28 = 14pt → 题型 24 = 12pt），与正文 22 拉开层次
+    const SIZE_TYPE_HEADER = 24;
+    const COLOR = {
+        title: '1F2937',
+        muted: '6B7280',
+        border: 'E5E7EB',
+        answer: '00A870',
+        wrong: 'DC2626',
+        analysisBg: 'F7F9FC',
+        type: '64748B',
+    };
+    // 题型名（不含序号）：序号由 buildTypeHeaders 按本章实际出现的题型顺序现场排
+    const TYPE_NAMES = {
+        单选: '单项选择题',
+        多选: '多项选择题',
+        填空: '填空题',
+        判断: '判断题',
+        简答: '简答题',
+    };
+    const CN_NUMERALS = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+    /** 大题头的中文序号（超出表长时退化为阿拉伯数字） */
+    function ordinalLabel(index) {
+        return CN_NUMERALS[index] ?? String(index + 1);
+    }
+    /**
+     * 本章的「题型 → 大题头」映射。
+     *
+     * 序号按本章**实际有题目**的题型从「一」重新排：此前用全局固定的题型序号，
+     * 某章没有单选题时多选题就会顶着「二、多项选择题」的跳号。
+     */
+    function buildTypeHeaders(section) {
+        const headers = new Map();
+        let ordinal = 0;
+        for (const qtype of section.typeOrder) {
+            const questions = section.results[qtype];
+            if (!questions || questions.length === 0)
+                continue;
+            headers.set(qtype, `${ordinalLabel(ordinal)}、${TYPE_NAMES[qtype] ?? qtype}`);
+            ordinal += 1;
+        }
+        return headers;
+    }
+    const BANK_TYPE_LABELS = {
+        单选: '【单选题】',
+        多选: '【多选题】',
+        填空: '【填空题】',
+        判断: '【判断题】',
+        简答: '【简答题】',
+    };
+    /** 题库导入格式的页面设置：A4 纵向，页边距比试卷略宽 */
+    function bankImportSections(children) {
+        const { convertMillimetersToTwip } = docx;
+        return [
+            {
+                properties: {
+                    page: {
+                        size: { width: 11906, height: 16838 },
+                        margin: {
+                            top: convertMillimetersToTwip(20),
+                            bottom: convertMillimetersToTwip(20),
+                            left: convertMillimetersToTwip(25),
+                            right: convertMillimetersToTwip(25),
+                        },
+                    },
+                },
+                children,
+            },
+        ];
+    }
+    /** 试卷正文的章节大标题：多章节单文件时用来分节（除首章外先分页） */
+    function chapterHeadingParagraph(text, pageBreak) {
+        const { Paragraph, TextRun, AlignmentType, HeadingLevel, PageBreak } = docx;
+        const parts = [];
+        if (pageBreak)
+            parts.push(new Paragraph({ children: [new PageBreak()], spacing: { after: 0 } }));
+        parts.push(new Paragraph({
+            children: [new TextRun({ text, font: FONT, size: 28, bold: true, color: COLOR.title })],
+            heading: HeadingLevel.HEADING_2,
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 240, after: 200 },
+        }));
+        return parts;
+    }
+    /** 答案页 / 错题页里的章节小标题（不强制分页，与上级大标题区分） */
+    function chapterLabelParagraph(text) {
+        const { Paragraph, TextRun } = docx;
+        return new Paragraph({
+            children: [new TextRun({ text, font: FONT, size: 26, bold: true, color: COLOR.title })],
+            spacing: { before: 200, after: 120 },
+        });
+    }
+    /** 题库导入格式：生成学习通智能导入兼容的 Word 文档 */
+    async function buildBankImportBlob(title, sections) {
+        const { Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel } = docx;
+        const children = [];
+        children.push(new Paragraph({
+            children: [
+                new TextRun({
+                    text: title || '题库导入',
+                    font: FONT,
+                    size: 32,
+                    bold: true,
+                    color: COLOR.title,
+                }),
+            ],
+            heading: HeadingLevel.HEADING_1,
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 240 },
+        }));
+        let qNum = 0;
+        for (const section of sections) {
+            for (const qtype of section.typeOrder) {
+                const questions = section.results[qtype];
+                if (!questions || questions.length === 0)
+                    continue;
+                const prefix = BANK_TYPE_LABELS[qtype];
+                for (const q of questions) {
+                    qNum++;
+                    // 题干（题号 + 题型标签 + 题干内容），括号归一化
+                    const stemText = (0, legacy_bridge_4.formatRichForText)((0, legacy_bridge_4.questionContent)(q));
+                    const stem = prefix + stemText.replace(/\(\s{2,}\)/g, '（ ）').replace(/（\s{2,}）/g, '（ ）');
+                    children.push(new Paragraph({
+                        children: [new TextRun({ text: `${qNum}.${stem}`, font: FONT, size: 22 })],
+                        spacing: { after: 40 },
+                    }));
+                    // 题干中的图片
+                    const stemContent = (0, legacy_bridge_4.questionContent)(q);
+                    for (const part of stemContent) {
+                        if (part.type === 'image') {
+                            const imgRun = await buildImageRun(part.url);
+                            if (imgRun) {
+                                children.push(new Paragraph({
+                                    children: [imgRun],
+                                    spacing: { after: 80 },
+                                }));
+                            }
+                        }
+                    }
+                    // 选项
+                    const options = q.options || [];
+                    for (const opt of options) {
+                        const runs = await buildRichRuns((0, legacy_bridge_4.optionContent)(opt), `${opt.letter}. `);
+                        children.push(new Paragraph({
+                            children: runs,
+                            indent: { left: 400, hanging: 200 },
+                            spacing: { after: 40 },
+                        }));
+                    }
+                    // 答案
+                    const answer = (0, legacy_bridge_4.formatRichForText)((0, legacy_bridge_4.answerContent)(q)).trim();
+                    if (answer) {
+                        // 格式化答案内容
+                        let formattedAnswerParts = null;
+                        if (qtype === '多选') {
+                            const parts = answer.replace(/\s+/g, '').split('');
+                            formattedAnswerParts = [{ type: 'text', text: parts.join('，') }];
+                        }
+                        else if (qtype === '判断') {
+                            if (/^[√✓Tt]|正确|True|TRUE/.test(answer)) {
+                                formattedAnswerParts = [{ type: 'text', text: '对' }];
+                            }
+                            else {
+                                formattedAnswerParts = [{ type: 'text', text: '错' }];
+                            }
+                        }
+                        children.push(...(await buildRichParagraphs(formattedAnswerParts || [{ type: 'text', text: answer }], '答案：', 120)));
+                    }
+                    else {
+                        children.push(new Paragraph({
+                            children: [new TextRun({ text: '', font: FONT, size: 22 })],
+                            spacing: { after: 120 },
+                        }));
+                    }
+                }
+            }
+        }
+        const doc = new Document({
+            styles: {
+                paragraphStyles: [
+                    {
+                        id: 'Normal',
+                        name: 'Normal',
+                        run: { font: FONT, size: 22, color: COLOR.title },
+                        paragraph: { spacing: { line: 330, lineRule: 'auto' } },
+                    },
+                ],
+            },
+            sections: bankImportSections(children),
+        });
+        return await Packer.toBlob(doc);
+    }
+    /**
+     * 试卷正文：标题 + 统计摘要 + 各章节题目（按题型分组）。
+     *
+     * title 是文档大标题（多章节时是「课程 - N 个章节」这类聚合标题），
+     * 与 section.title（章节名，多章节时作为正文里的分节标题）不是一回事。
+     */
+    async function buildPaperBody(title, sections) {
+        const { Paragraph, TextRun, AlignmentType, HeadingLevel } = docx;
+        const children = [];
+        const multiSection = sections.length > 1;
+        // 标题
+        children.push(new Paragraph({
+            children: [
+                new TextRun({ text: title || '试卷', font: FONT, size: 32, bold: true, color: '2563EB' }),
+            ],
+            heading: HeadingLevel.HEADING_1,
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 200, after: 120 },
+        }));
+        // 统计摘要（多章节时跨章节汇总）
+        let totalQ = 0;
+        const typeCount = {};
+        for (const section of sections) {
+            for (const qtype of section.typeOrder) {
+                const questions = section.results[qtype];
+                if (!questions || questions.length === 0)
+                    continue;
+                typeCount[qtype] = (typeCount[qtype] ?? 0) + questions.length;
+                totalQ += questions.length;
+            }
+        }
+        const summary = Object.entries(typeCount)
+            .map(([type, count]) => `${type} ${count} 道`)
+            .join(' / ');
+        children.push(new Paragraph({
+            children: [
+                new TextRun({ text: `共 ${totalQ} 道题`, font: FONT, size: 20, color: COLOR.muted }),
+                ...(summary
+                    ? [new TextRun({ text: ` · ${summary}`, font: FONT, size: 20, color: COLOR.muted })]
+                    : []),
+            ],
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 60, after: 260 },
+        }));
+        for (let sectionIndex = 0; sectionIndex < sections.length; sectionIndex += 1) {
+            const section = sections[sectionIndex];
+            if (!section)
+                continue;
+            // 多章节单文件：每章前插章节大标题
+            if (multiSection)
+                children.push(...chapterHeadingParagraph(section.title, sectionIndex > 0));
+            // 题号与题型序号都按章重新开始：每章从第 1 题、从「一、」数起
+            const typeHeaders = buildTypeHeaders(section);
+            let qNum = 0;
+            for (const qtype of section.typeOrder) {
+                const questions = section.results[qtype];
+                if (!questions || questions.length === 0)
+                    continue;
+                const header = typeHeaders.get(qtype) ?? TYPE_NAMES[qtype] ?? qtype;
+                const count = questions.length;
+                children.push(new Paragraph({
+                    children: [
+                        new TextRun({
+                            text: `${header}（本大题共${count}小题）`,
+                            font: FONT,
+                            size: SIZE_TYPE_HEADER,
+                            bold: true,
+                            color: COLOR.title,
+                        }),
+                    ],
+                    spacing: { after: 120 },
+                }));
+                for (const q of questions) {
+                    qNum++;
+                    const stemContent = (0, legacy_bridge_4.questionContent)(q);
+                    const typeMetaRun = q.typeMeta
+                        ? new TextRun({ text: `${q.typeMeta} `, font: FONT, size: 22, color: COLOR.type })
+                        : null;
+                    if (qtype === '单选' || qtype === '多选') {
+                        // 题目块
+                        children.push(new Paragraph({
+                            children: [
+                                new TextRun({
+                                    text: `${qNum}. `,
+                                    font: FONT,
+                                    size: 22,
+                                    bold: true,
+                                    color: COLOR.title,
+                                }),
+                                ...(typeMetaRun ? [typeMetaRun] : []),
+                                ...(await buildRichRuns(stemContent)),
+                            ],
+                            spacing: { before: 220, after: 100 },
+                        }));
+                        const options = q.options || [];
+                        if (options.length > 0) {
+                            // 单选/多选选项统一一列多行排列
+                            for (const opt of options) {
+                                children.push(new Paragraph({
+                                    children: await buildRichRuns((0, legacy_bridge_4.optionContent)(opt), `${opt.letter}. `),
+                                    indent: { left: 620, hanging: 220 },
+                                    spacing: { before: 30, after: 30 },
+                                }));
+                            }
+                            children.push(new Paragraph({ children: [], spacing: { after: 80 } }));
+                        }
+                    }
+                    else if (qtype === '填空') {
+                        children.push(new Paragraph({
+                            children: [
+                                new TextRun({
+                                    text: `${qNum}. `,
+                                    font: FONT,
+                                    size: 22,
+                                    bold: true,
+                                    color: COLOR.title,
+                                }),
+                                ...(await buildRichRuns(stemContent)),
+                            ],
+                            spacing: { before: 220, after: 40 },
+                        }));
+                        children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
+                    }
+                    else if (qtype === '判断') {
+                        const judgeRuns = await buildRichRuns(stemContent);
+                        judgeRuns.push(new TextRun({ text: '（  ）', font: FONT, size: 22 }));
+                        children.push(new Paragraph({
+                            children: [
+                                new TextRun({
+                                    text: `${qNum}. `,
+                                    font: FONT,
+                                    size: 22,
+                                    bold: true,
+                                    color: COLOR.title,
+                                }),
+                                ...(typeMetaRun ? [typeMetaRun] : []),
+                                ...judgeRuns,
+                            ],
+                            spacing: { before: 220, after: 120 },
+                        }));
+                    }
+                    else if (qtype === '简答') {
+                        children.push(new Paragraph({
+                            children: [
+                                new TextRun({
+                                    text: `${qNum}. `,
+                                    font: FONT,
+                                    size: 22,
+                                    bold: true,
+                                    color: COLOR.title,
+                                }),
+                                ...(typeMetaRun ? [typeMetaRun] : []),
+                                ...(await buildRichRuns(stemContent)),
+                            ],
+                            spacing: { before: 220, after: 40 },
+                        }));
+                        for (let i = 0; i < 8; i++) {
+                            children.push(new Paragraph({
+                                children: [new TextRun({ text: '', font: FONT, size: 22 })],
+                                spacing: { after: 40 },
+                            }));
+                        }
+                        children.push(new Paragraph({ children: [], spacing: { after: 80 } }));
+                    }
+                }
+                // 判断题与简答题之间补一行空行
+                if (qtype === '判断') {
+                    children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
+                }
+            }
+        }
+        return children;
+    }
+    /** 答案页：分页后按章节、按题型列出正确答案 */
+    async function appendAnswerPage(children, sections) {
+        const { Paragraph, TextRun, AlignmentType, HeadingLevel, PageBreak } = docx;
+        const multiSection = sections.length > 1;
+        children.push(new Paragraph({
+            children: [new PageBreak()],
+            spacing: { after: 0 },
+        }));
+        children.push(new Paragraph({
+            children: [
+                new TextRun({
+                    text: '正确答案',
+                    font: FONT,
+                    size: 32,
+                    bold: true,
+                    color: COLOR.title,
+                }),
+            ],
+            heading: HeadingLevel.HEADING_1,
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 200, after: 240 },
+        }));
+        for (const section of sections) {
+            if (multiSection)
+                children.push(chapterLabelParagraph(section.title));
+            // 答案编号与题目页一致：按章重新从 1 数起，题型序号同样按本章重排
+            const typeHeaders = buildTypeHeaders(section);
+            let aNum = 0;
+            for (const qtype of section.typeOrder) {
+                const questions = section.results[qtype];
+                if (!questions || questions.length === 0)
+                    continue;
+                const header = typeHeaders.get(qtype) ?? TYPE_NAMES[qtype] ?? qtype;
+                children.push(new Paragraph({
+                    children: [
+                        new TextRun({
+                            text: header,
+                            font: FONT,
+                            size: SIZE_TYPE_HEADER,
+                            bold: true,
+                            color: COLOR.title,
+                        }),
+                    ],
+                    spacing: { after: 120 },
+                }));
+                for (const q of questions) {
+                    aNum++;
+                    // 清洗答案文本，去除“正确答案:/我的答案:”等标签组合
+                    const answerContentArr = (0, legacy_bridge_4.answerContent)(q);
+                    const cleanedContent = answerContentArr.map((part) => {
+                        if (part.type === 'text') {
+                            return { ...part, text: cleanAnswerText(part.text) };
+                        }
+                        return part;
+                    });
+                    const answerRuns = await buildRichRuns(cleanedContent);
+                    if (answerRuns.length === 0) {
+                        answerRuns.push(new TextRun({ text: '（未找到答案）', font: FONT, size: 22, color: COLOR.muted }));
+                    }
+                    else {
+                        // 将答案文本改为绿色加粗
+                        answerRuns.forEach((run) => {
+                            if (run.font)
+                                run.font = FONT;
+                            run.size = 22;
+                            run.bold = true;
+                            run.color = COLOR.answer;
+                        });
+                    }
+                    children.push(new Paragraph({
+                        children: [
+                            new TextRun({ text: `${aNum}. `, font: FONT, size: 22, color: COLOR.title }),
+                            ...answerRuns,
+                        ],
+                        spacing: { before: 90, after: 70 },
+                        indent: { left: 420 },
+                    }));
+                    // 简答题答案常有多行，之间空一行便于区分
+                    if (qtype === '简答') {
+                        children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
+                    }
+                }
+            }
+        }
+    }
+    /** 错题汇总页：分页后列出答错的题目、我的答案与正确答案 */
+    async function appendWrongPage(children, sections) {
+        const { Paragraph, TextRun, AlignmentType, HeadingLevel, PageBreak } = docx;
+        const multiSection = sections.length > 1;
+        const hasAnyWrong = sections.some((section) => section.typeOrder.some((qtype) => (section.results[qtype] ?? []).some((question) => question.isWrong)));
+        if (!hasAnyWrong)
+            return;
+        children.push(new Paragraph({
+            children: [new PageBreak()],
+            spacing: { after: 0 },
+        }));
+        children.push(new Paragraph({
+            children: [
+                new TextRun({
+                    text: '错题汇总',
+                    font: FONT,
+                    size: 32,
+                    bold: true,
+                    color: COLOR.title,
+                }),
+            ],
+            heading: HeadingLevel.HEADING_1,
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 200, after: 240 },
+        }));
+        for (const section of sections) {
+            if (multiSection) {
+                // 该章一道错题都没有时，连章节标题一起省掉（与「无错题的题型不出现」一致）
+                const sectionHasWrong = section.typeOrder.some((qtype) => (section.results[qtype] ?? []).some((question) => question.isWrong));
+                const before = children.length;
+                if (sectionHasWrong)
+                    children.push(chapterLabelParagraph(section.title));
+                // 章节标题先占位，若无错题则回滚（保持既有「空section不出标题」的写法简单）
+                if (!sectionHasWrong && children.length !== before)
+                    children.length = before;
+            }
+            // 错题题号要能对上题目页，因此同样按章重新从 1 数起
+            const typeHeaders = buildTypeHeaders(section);
+            let globalNum = 0;
+            for (const qtype of section.typeOrder) {
+                const questions = section.results[qtype];
+                if (!questions || questions.length === 0)
+                    continue;
+                if (qtype === '简答') {
+                    globalNum += questions.length;
+                    continue;
+                }
+                const header = typeHeaders.get(qtype) ?? TYPE_NAMES[qtype] ?? qtype;
+                let sectionHasWrong = false;
+                for (const q of questions) {
+                    if (q.isWrong) {
+                        sectionHasWrong = true;
+                        break;
+                    }
+                }
+                if (!sectionHasWrong) {
+                    globalNum += questions.length;
+                    continue;
+                }
+                children.push(new Paragraph({
+                    children: [
+                        new TextRun({
+                            text: header,
+                            font: FONT,
+                            size: SIZE_TYPE_HEADER,
+                            bold: true,
+                            color: COLOR.title,
+                        }),
+                    ],
+                    spacing: { after: 120 },
+                }));
+                for (const q of questions) {
+                    globalNum++;
+                    if (!q.isWrong)
+                        continue;
+                    children.push(new Paragraph({
+                        children: await buildRichRuns((0, legacy_bridge_4.questionContent)(q), `${globalNum}. `),
+                        spacing: { before: 160, after: 40 },
+                    }));
+                    const options = q.options || [];
+                    if (options.length > 0) {
+                        for (const opt of options) {
+                            children.push(new Paragraph({
+                                children: await buildRichRuns((0, legacy_bridge_4.optionContent)(opt), `${opt.letter}. `),
+                                indent: { left: 620, hanging: 220 },
+                                spacing: { before: 30, after: 30 },
+                            }));
+                        }
+                    }
+                    children.push(new Paragraph({
+                        children: [
+                            new TextRun({
+                                text: `我的答案: ${q.myAnswer || '无'}`,
+                                font: FONT,
+                                size: 22,
+                                color: COLOR.wrong,
+                            }),
+                        ],
+                        spacing: { before: 60, after: 40 },
+                        indent: { left: 420 },
+                    }));
+                    const answerContentArr = (0, legacy_bridge_4.answerContent)(q);
+                    const cleanedContent = answerContentArr.map((part) => {
+                        if (part.type === 'text') {
+                            return { ...part, text: cleanAnswerText(part.text) };
+                        }
+                        return part;
+                    });
+                    const correctRuns = await buildRichRuns(cleanedContent);
+                    if (correctRuns.length === 0) {
+                        correctRuns.push(new TextRun({ text: '（未找到答案）', font: FONT, size: 22, color: COLOR.muted }));
+                    }
+                    else {
+                        correctRuns.forEach((run) => {
+                            if (run.font)
+                                run.font = FONT;
+                            run.size = 22;
+                            run.bold = true;
+                            run.color = COLOR.answer;
+                        });
+                    }
+                    children.push(new Paragraph({
+                        children: [
+                            new TextRun({
+                                text: '正确答案：',
+                                font: FONT,
+                                size: 22,
+                                bold: true,
+                                color: COLOR.answer,
+                            }),
+                            ...correctRuns,
+                        ],
+                        spacing: { before: 40, after: 120 },
+                        indent: { left: 420 },
+                    }));
+                    // 每道题之间空一行
+                    children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
+                }
+                // 每个类别之间空一行
+                children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
+            }
+        }
+    }
+    async function generateWordBlob(title, sections, options) {
+        const { Document, Packer } = docx;
+        if (options.bankImport) {
+            return await buildBankImportBlob(title, sections);
+        }
+        const children = await buildPaperBody(title, sections);
+        if (options.withAnswers)
+            await appendAnswerPage(children, sections);
+        if (options.withWrong)
+            await appendWrongPage(children, sections);
+        const doc = new Document({
+            styles: {
+                paragraphStyles: [
+                    {
+                        id: 'Normal',
+                        name: 'Normal',
+                        run: { font: FONT, size: 22, color: COLOR.title },
+                        paragraph: { spacing: { line: 330, lineRule: 'auto' } },
+                    },
+                ],
+            },
+            sections: [
+                {
+                    properties: {
+                        page: {
+                            size: { width: 11906, height: 16838 },
+                            margin: {
+                                top: 1134,
+                                right: 1134,
+                                bottom: 1134,
+                                left: 1134,
+                            },
+                        },
+                    },
+                    children,
+                },
+            ],
+        });
+        return await Packer.toBlob(doc);
+    }
+});
+define("exporters/export-service", ["require", "exports", "exporters/legacy-bridge", "exporters/text-formatter", "exporters/markdown-formatter", "exporters/word-exporter", "exporters/word-plan"], function (require, exports, legacy_bridge_5, text_formatter_1, markdown_formatter_1, word_exporter_1, word_plan_1) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.ExportService = void 0;
+    // 原版 getOutputText：根据选项生成输出文本
+    // （打乱时题目和答案用打乱顺序重新生成，错题汇总始终用原始顺序）
+    function getOutputText(legacy, options) {
+        const fmt = options.format;
+        const withAnswers = options.withAnswers;
+        const withWrong = options.withWrong;
+        const doShuffle = options.shuffle;
+        let base = '';
+        if (doShuffle) {
+            const shuffled = (0, legacy_bridge_5.shuffleQuestions)(legacy.results, legacy.typeOrder);
+            if (fmt === 'md') {
+                base = withAnswers
+                    ? (0, markdown_formatter_1.formatOutputWithAnswersMD)(shuffled, legacy.typeOrder)
+                    : (0, markdown_formatter_1.formatOutputMD)(shuffled, legacy.typeOrder);
+            }
+            else {
+                base = withAnswers
+                    ? (0, text_formatter_1.formatOutputWithAnswers)(shuffled, legacy.typeOrder)
+                    : (0, text_formatter_1.formatOutput)(shuffled, legacy.typeOrder);
+            }
+        }
+        else {
+            if (fmt === 'md') {
+                base = withAnswers
+                    ? (0, markdown_formatter_1.formatOutputWithAnswersMD)(legacy.results, legacy.typeOrder)
+                    : (0, markdown_formatter_1.formatOutputMD)(legacy.results, legacy.typeOrder);
+            }
+            else {
+                base = withAnswers
+                    ? (0, text_formatter_1.formatOutputWithAnswers)(legacy.results, legacy.typeOrder)
+                    : (0, text_formatter_1.formatOutput)(legacy.results, legacy.typeOrder);
+            }
+        }
+        if (withWrong) {
+            const wrong = fmt === 'md'
+                ? (0, markdown_formatter_1.formatWrongQuestionsMD)(legacy.results, legacy.typeOrder)
+                : (0, text_formatter_1.formatWrongQuestionsTXT)(legacy.results, legacy.typeOrder);
+            return base + wrong;
+        }
+        return base;
+    }
+    // 原版 getChapterText：为单个章节生成输出文本（用于分章节下载）
+    function getChapterText(chapter, options) {
+        const results = chapter.results || {};
+        const typeOrder = chapter.typeOrder || [];
+        const withAnswers = options.withAnswers;
+        const withWrong = options.withWrong;
+        const doShuffle = options.shuffle;
+        const activeResults = doShuffle ? (0, legacy_bridge_5.shuffleQuestions)(results, typeOrder) : results;
+        if (options.format === 'md') {
+            if (withWrong)
+                return (0, markdown_formatter_1.formatWrongQuestionsMD)(activeResults, typeOrder);
+            if (withAnswers)
+                return (0, markdown_formatter_1.formatOutputWithAnswersMD)(activeResults, typeOrder);
+            return (0, markdown_formatter_1.formatOutputMD)(activeResults, typeOrder);
+        }
+        if (withWrong)
+            return (0, text_formatter_1.formatWrongQuestionsTXT)(activeResults, typeOrder);
+        if (withAnswers)
+            return (0, text_formatter_1.formatOutputWithAnswers)(activeResults, typeOrder);
+        return (0, text_formatter_1.formatOutput)(activeResults, typeOrder);
+    }
+    class ExportService {
+        async createArtifacts(sourceResult, options) {
+            const legacy = (0, legacy_bridge_5.toLegacyResult)(sourceResult);
+            // 原版规则：文件名输入去掉扩展名后作为基础名
+            const baseFilename = (options.filename || legacy.title || '学习通题目').replace(/\.(txt|md|docx)$/, '');
+            // Word 导出（原版规则：题库导入必带答案并禁用打乱/错题）
+            // 文件划分交给 word-plan：勾选「按章节拆分文件」时一章一个 .docx；
+            // 否则只产出一个文件，多章节时正文按「章节 → 题型」分节，不再把各章同题型混在一起。
+            if (options.format === 'word') {
+                const isBankImport = options.bankImport;
+                const withWrong = !isBankImport && options.withWrong;
+                const plans = (0, word_plan_1.planWordDocuments)(sourceResult, options);
+                const artifacts = [];
+                window.__xxt_failed_image_count = 0;
+                for (const plan of plans) {
+                    const failedBefore = window.__xxt_failed_image_count || 0;
+                    const blob = await (0, word_exporter_1.generateWordBlob)(plan.title, plan.sections, {
+                        withAnswers: isBankImport || options.withAnswers,
+                        withWrong,
+                        bankImport: isBankImport,
+                    });
+                    artifacts.push({
+                        blob,
+                        filename: plan.filename,
+                        mimeType: word_exporter_1.WORD_MIME,
+                        // 图片计数是全局累加的，这里取本文件的增量
+                        failedImages: (window.__xxt_failed_image_count || 0) - failedBefore,
+                    });
+                }
+                return artifacts;
+            }
+            // TXT / MD 导出
+            const ext = options.format === 'md' ? '.md' : '.txt';
+            const mime = options.format === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8';
+            // 分章节下载：每个章节单独一个文件
+            if (options.splitByChapter && sourceResult.chapters && sourceResult.chapters.length > 1) {
+                const artifacts = [];
+                for (let i = 0; i < sourceResult.chapters.length; i++) {
+                    const chapter = sourceResult.chapters[i];
+                    if (!chapter)
+                        continue;
+                    const chapterData = (0, legacy_bridge_5.toLegacyChapter)(chapter);
+                    // 生成单章文本
+                    const chText = getChapterText(chapterData, options);
+                    const safeTitle = (chapterData.title || `章节${i + 1}`).replace(/[\\/:*?"<>|]/g, '_');
+                    artifacts.push({
+                        blob: new Blob([chText], { type: mime }),
+                        filename: `${baseFilename}_${i + 1}_${safeTitle}${ext}`,
+                        mimeType: mime,
+                    });
+                }
+                return artifacts;
+            }
+            // 合并下载
+            const text = getOutputText(legacy, options);
+            return [
+                {
+                    blob: new Blob([text], { type: mime }),
+                    filename: `${baseFilename}${ext}`,
+                    mimeType: mime,
+                },
+            ];
+        }
+        previewText(result, options) {
+            // 原版行为：Word 格式不支持复制文本
+            if (options.format === 'word')
+                return '';
+            return getOutputText((0, legacy_bridge_5.toLegacyResult)(result), options);
+        }
+    }
+    exports.ExportService = ExportService;
+});
+define("infrastructure/clipboard-service", ["require", "exports"], function (require, exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.ClipboardService = void 0;
+    class ClipboardService {
+        async writeText(value) {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(value);
+                return;
+            }
+            const textarea = document.createElement('textarea');
+            textarea.value = value;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            const copied = document.execCommand('copy');
+            textarea.remove();
+            if (!copied)
+                throw new Error('浏览器拒绝访问剪贴板');
+        }
+    }
+    exports.ClipboardService = ClipboardService;
+});
+define("infrastructure/download-service", ["require", "exports"], function (require, exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.DownloadService = void 0;
+    class DownloadService {
+        // 原版下载方式：创建临时 <a> 点击后立即释放 URL
+        async download(artifact) {
+            const url = URL.createObjectURL(artifact.blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = artifact.filename;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+        // 多文件下载间隔 300ms，避免多个下载被浏览器拦截
+        async downloadMany(artifacts) {
+            for (const artifact of artifacts) {
+                await this.download(artifact);
+                // 浏览器下载间隔，避免多个下载被拦截
+                await new Promise((resolve) => setTimeout(resolve, 300));
+            }
+        }
+    }
+    exports.DownloadService = DownloadService;
+});
 define("utils/async", ["require", "exports"], function (require, exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.delay = delay;
-    exports.poll = poll;
     exports.debounce = debounce;
     function delay(milliseconds) {
         return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-    }
-    async function poll(producer, accept, options) {
-        const deadline = Date.now() + options.timeoutMs;
-        let lastValue = null;
-        while (Date.now() < deadline) {
-            lastValue = await producer();
-            if (accept(lastValue))
-                return lastValue;
-            await delay(options.intervalMs);
-        }
-        return lastValue !== null && accept(lastValue) ? lastValue : null;
     }
     function debounce(callback, waitMs) {
         let timer = null;
@@ -4935,7 +5501,7 @@ define("infrastructure/logger", ["require", "exports"], function (require, expor
     }
     exports.Logger = Logger;
 });
-define("infrastructure/frame-bridge", ["require", "exports", "extractors/composite-extractor", "utils/async", "utils/hash", "infrastructure/logger"], function (require, exports, composite_extractor_1, async_1, hash_2, logger_1) {
+define("infrastructure/frame-bridge", ["require", "exports", "extractors/composite-extractor", "utils/async", "utils/hash", "infrastructure/logger"], function (require, exports, composite_extractor_2, async_1, hash_2, logger_1) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.FrameAgent = exports.FrameBridge = void 0;
@@ -5026,7 +5592,7 @@ define("infrastructure/frame-bridge", ["require", "exports", "extractors/composi
     }
     exports.FrameBridge = FrameBridge;
     class FrameAgent {
-        constructor(extractor = new composite_extractor_1.CompositeExtractor()) {
+        constructor(extractor = new composite_extractor_2.CompositeExtractor()) {
             this.extractor = extractor;
             this.observer = null;
             this.lastFingerprint = '';
@@ -5138,7 +5704,7 @@ define("infrastructure/safe-storage", ["require", "exports"], function (require,
     }
     exports.SafeStorage = SafeStorage;
 });
-define("infrastructure/history-repository", ["require", "exports", "domain/question", "extractors/rich-content", "utils/hash", "infrastructure/safe-storage"], function (require, exports, question_2, rich_content_6, hash_3, safe_storage_1) {
+define("infrastructure/history-repository", ["require", "exports", "domain/question", "extractors/rich-content", "utils/hash", "infrastructure/safe-storage"], function (require, exports, question_2, rich_content_8, hash_3, safe_storage_1) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.HistoryRepository = void 0;
@@ -5185,8 +5751,8 @@ define("infrastructure/history-repository", ["require", "exports", "domain/quest
                 return valid;
         }
         if (typeof value === 'string')
-            return (0, rich_content_6.textContent)(value);
-        return typeof fallback === 'string' ? (0, rich_content_6.textContent)(fallback) : [];
+            return (0, rich_content_8.textContent)(value);
+        return typeof fallback === 'string' ? (0, rich_content_8.textContent)(fallback) : [];
     }
     function legacyOptions(value) {
         if (!Array.isArray(value))
@@ -5197,7 +5763,7 @@ define("infrastructure/history-repository", ["require", "exports", "domain/quest
                 return [
                     {
                         key: match?.[1]?.toUpperCase() ?? String.fromCharCode(65 + index),
-                        content: (0, rich_content_6.textContent)(match?.[2] ?? option),
+                        content: (0, rich_content_8.textContent)(match?.[2] ?? option),
                     },
                 ];
             }
@@ -5325,7 +5891,6 @@ define("infrastructure/history-repository", ["require", "exports", "domain/quest
             filename: typeof legacyOptions.filename === 'string' ? legacyOptions.filename : title,
             withAnswers: legacyOptions.withAnswers === true,
             withWrong: legacyOptions.withWrong === true,
-            includeAnalysis: legacyOptions.includeAnalysis !== false,
             shuffle: legacyOptions.shuffle === true,
             bankImport: legacyOptions.bankImport === true,
             splitByChapter: legacyOptions.splitByChapter === true,
@@ -5428,6 +5993,8 @@ define("infrastructure/settings-repository", ["require", "exports", "domain/sett
     const KEY = 'chaoxing-work-export:settings:v3';
     const LEGACY_KEY = 'xxt_settings';
     const LEGACY_EXPORT_KEYS = ['xxt_export_config', 'xxt_export_options'];
+    // 「打开窗口自动提取」默认值升级的标记（只升级一次，之后尊重用户的显式选择）
+    const AUTO_EXTRACT_DEFAULT_KEY = 'chaoxing-work-export:auto-extract-default:v1';
     function isRecord(value) {
         return typeof value === 'object' && value !== null && !Array.isArray(value);
     }
@@ -5473,7 +6040,6 @@ define("infrastructure/settings-repository", ["require", "exports", "domain/sett
             format,
             withAnswers: firstBoolean(source, ['withAnswers', 'includeAnswers', 'appendAnswers'], settings_1.DEFAULT_SETTINGS.exportPreferences.withAnswers),
             withWrong: firstBoolean(source, ['withWrong', 'includeWrong', 'appendWrong'], settings_1.DEFAULT_SETTINGS.exportPreferences.withWrong),
-            includeAnalysis: firstBoolean(source, ['includeAnalysis', 'withAnalysis', 'appendAnalysis'], settings_1.DEFAULT_SETTINGS.exportPreferences.includeAnalysis),
             shuffle: firstBoolean(source, ['shuffle', 'randomOrder'], settings_1.DEFAULT_SETTINGS.exportPreferences.shuffle),
             bankImport: firstBoolean(source, ['bankImport', 'questionBankFormat', 'bankMode'], settings_1.DEFAULT_SETTINGS.exportPreferences.bankImport),
             splitByChapter: firstBoolean(source, ['splitByChapter', 'splitChapters'], settings_1.DEFAULT_SETTINGS.exportPreferences.splitByChapter),
@@ -5500,11 +6066,9 @@ define("infrastructure/settings-repository", ["require", "exports", "domain/sett
         load() {
             const current = this.storage.read(KEY);
             if (current !== null)
-                return settingsValue(current);
+                return this.upgradeAutoExtractDefault(settingsValue(current));
             const legacySettings = this.storage.read(LEGACY_KEY);
-            const legacyExport = LEGACY_EXPORT_KEYS
-                .map((key) => this.storage.read(key))
-                .find((value) => value !== null);
+            const legacyExport = LEGACY_EXPORT_KEYS.map((key) => this.storage.read(key)).find((value) => value !== null);
             if (legacySettings !== null || legacyExport !== undefined) {
                 const merged = isRecord(legacySettings) ? { ...legacySettings } : {};
                 if (legacyExport !== undefined)
@@ -5517,6 +6081,23 @@ define("infrastructure/settings-repository", ["require", "exports", "domain/sett
         }
         save(settings) {
             this.storage.write(KEY, settings);
+        }
+        /**
+         * 一次性默认值升级：「打开窗口自动提取」的默认值由关闭改为打开。
+         *
+         * 只改 DEFAULT_SETTINGS 对存量配置无效 —— 该字段早就被显式写入过（值为旧的默认值 false），
+         * 会一直盖住新的默认值。这里在首次加载时补成新默认值并记下标记；标记置位后
+         * 用户在设置里主动关掉会被正常保存，不会再次被改回。
+         */
+        upgradeAutoExtractDefault(settings) {
+            if (this.storage.read(AUTO_EXTRACT_DEFAULT_KEY) !== null)
+                return settings;
+            this.storage.write(AUTO_EXTRACT_DEFAULT_KEY, true);
+            if (settings.autoExtractOnLoad)
+                return settings;
+            const upgraded = { ...settings, autoExtractOnLoad: true };
+            this.save(upgraded);
+            return upgraded;
         }
     }
     exports.SettingsRepository = SettingsRepository;
@@ -5664,13 +6245,41 @@ define("application/chapter-locator", ["require", "exports", "utils/text"], func
     }
     exports.ChapterLocator = ChapterLocator;
 });
-define("application/extraction-service", ["require", "exports", "domain/question", "extractors/composite-extractor", "extractors/page-context", "infrastructure/frame-bridge", "utils/hash", "utils/async", "utils/dom"], function (require, exports, question_3, composite_extractor_2, page_context_2, frame_bridge_1, hash_4, async_2, dom_7) {
+define("application/extraction-service", ["require", "exports", "domain/question", "extractors/composite-extractor", "extractors/page-context", "infrastructure/frame-bridge", "utils/async", "utils/hash", "utils/dom"], function (require, exports, question_3, composite_extractor_3, page_context_2, frame_bridge_1, async_2, hash_4, dom_8) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.ExtractionService = void 0;
+    exports.incompleteChoiceCount = incompleteChoiceCount;
     // 采样间隔：只决定「题目出现」被检测到的延迟，越小越快（每轮含一次跨层提取）
     const QUESTION_SETTLE_INTERVAL_MS = 120;
     const DEFAULT_QUESTION_TIMEOUT_MS = 12000;
+    // 结果需连续多帧完全一致才判定「渲染完毕」：答题页会分几批渲染题目，
+    // 只比对两帧会在两批之间误判为结束（表现为只拿到前面几道题）
+    const SETTLE_STABLE_MS = 600;
+    // 选择题确认渲染不出选项时的兜底：稳定这么久后按现状返回，避免空等超时
+    const PARTIAL_SETTLE_MS = 3000;
+    // 判断「文档里是否已经有题目结构」用：只要命中就说明该文档可能还有选项在路上
+    const QUESTION_CONTAINER_SELECTOR = '.TiMu, .questionLi, .answerBg, .mark_item, .mark_name';
+    /** 需要选项才算「渲染完整」的题型 */
+    const CHOICE_TYPES = new Set([
+        'single-choice',
+        'multiple-choice',
+    ]);
+    /**
+     * 统计「渲染明显不完整」的选择题数量：选择题的题干与选项是同一批 HTML，
+     * 只出现题干而没有选项，几乎只可能是页面还没渲染完。
+     * 答题页中途被采样到时若直接采用，导出结果就会只剩题干。
+     */
+    function incompleteChoiceCount(result) {
+        if (!result)
+            return 0;
+        return result.questions.filter((question) => CHOICE_TYPES.has(question.type) && question.options.length === 0).length;
+    }
+    /** 结果丰富度：题数优先，其次选项总数，用于在加载过程中保留最完整的一帧 */
+    function richnessOf(result) {
+        const options = result.questions.reduce((total, question) => total + question.options.length, 0);
+        return result.questions.length * 1000 + options;
+    }
     /**
      * Coordinates all extraction sources visible to the current top-level page.
      *
@@ -5679,7 +6288,7 @@ define("application/extraction-service", ["require", "exports", "domain/question
      * transport concerns out of individual DOM extractors.
      */
     class ExtractionService {
-        constructor(extractor = new composite_extractor_2.CompositeExtractor(), frameBridge = new frame_bridge_1.FrameBridge()) {
+        constructor(extractor = new composite_extractor_3.CompositeExtractor(), frameBridge = new frame_bridge_1.FrameBridge()) {
             this.extractor = extractor;
             this.frameBridge = frameBridge;
         }
@@ -5722,31 +6331,85 @@ define("application/extraction-service", ["require", "exports", "domain/question
             return { ...result, title: scopeTitle };
         }
         /**
-         * 采样等待题目就绪，题目一出现立即返回。
+         * 采样等待题目「渲染完整」，而不是等到第一眼看见题目就收工。
          *
          * 页面就绪的时刻并不确定：任务卡切换、答题页 AJAX 渲染都可能晚于我们的点击。
-         * 「切一次卡 + 固定长等待」要么空等、要么在旧页面上点了空，因此改为按采样间隔
-         * 反复确认——检测延迟收敛到一次采样间隔，期间还能通过 repair 修正被新页面
-         * 重置的状态（例如任务卡回到默认的「视频」卡）。
+         * 「切一次卡 + 固定长等待」要么空等、要么在旧页面上点了空，因此改为按采样间隔反复确认，
+         * 期间通过 repair 修正被新页面重置的状态（例如任务卡回到默认的「视频」卡）。
+         *
+         * 但只判断「有没有题目」并不够：答题页会分几批渲染，中途被采样到时可能只渲染出题干、
+         * 选项还没补上。因此这里做了两件事：
+         * 1. 结果要连续多帧完全一致才认为渲染结束（`SETTLE_STABLE_MS`）；
+         * 2. 选择题缺选项视为「仍在渲染」，除非页面稳定很久仍是如此（`PARTIAL_SETTLE_MS` 兜底，
+         *    避免个别确实没有选项的页面白等满整段超时）；若承载题目的文档还在 loading，
+         *    说明 HTML 还没解析完，此时不允许按兜底提前返回，继续等（`deadline` 仍然兜底）；
+         * 3. 全程记录「最丰富的一帧」，超时或兜底返回它，绝不返回比中间帧更差的结果。
          */
         async settleQuestions(options = {}) {
             const previousFingerprint = options.previousFingerprint;
-            return (0, async_2.poll)(() => {
+            const intervalMs = options.intervalMs ?? QUESTION_SETTLE_INTERVAL_MS;
+            const deadline = Date.now() + (options.timeoutMs ?? DEFAULT_QUESTION_TIMEOUT_MS);
+            let best = null;
+            let bestRichness = Number.NEGATIVE_INFINITY;
+            let seenFingerprint = '';
+            let stableMs = 0;
+            for (;;) {
                 options.repair?.();
-                return this.extract();
-            }, (result) => {
-                if (!result || result.questions.length === 0)
-                    return false;
-                return (previousFingerprint === undefined || this.fingerprint(result) !== previousFingerprint);
-            }, {
-                timeoutMs: options.timeoutMs ?? DEFAULT_QUESTION_TIMEOUT_MS,
-                intervalMs: options.intervalMs ?? QUESTION_SETTLE_INTERVAL_MS,
-            });
+                const result = this.extract();
+                if (result && result.questions.length > 0) {
+                    const fingerprint = this.fingerprint(result);
+                    // 指纹未变化说明页面还停在上一个内容上（章节尚未切过去），这一类帧不参与判定
+                    const changed = previousFingerprint === undefined || fingerprint !== previousFingerprint;
+                    if (changed) {
+                        const richness = richnessOf(result);
+                        if (richness > bestRichness) {
+                            best = result;
+                            bestRichness = richness;
+                        }
+                        stableMs = fingerprint === seenFingerprint ? stableMs + intervalMs : 0;
+                        seenFingerprint = fingerprint;
+                        const incomplete = incompleteChoiceCount(result) > 0;
+                        // 答题页是一整个大 HTML，浏览器按到达顺序解析：题干（.Zy_TItle，结构里在前）
+                        // 可能已经入 DOM，而同一题的选项（ul.Zy_ulTop，结构里在后）还没解析到。
+                        // 这种「题干有了、选项还在路上」的中间态不满足「稳定 3 秒就收工」的前提，
+                        // 只要承载题目的文档还在 loading 就继续等（最终仍由 deadline 兜底）。
+                        const waitingForOptions = incomplete && this.hasLoadingQuestionDocument();
+                        if (stableMs >= SETTLE_STABLE_MS &&
+                            (!incomplete || (stableMs >= PARTIAL_SETTLE_MS && !waitingForOptions))) {
+                            return incomplete ? (best ?? result) : result;
+                        }
+                    }
+                }
+                if (Date.now() >= deadline)
+                    return best;
+                await (0, async_2.delay)(intervalMs);
+            }
+        }
+        /**
+         * 是否还有「承载题目的文档」处于加载中。
+         *
+         * 只有「选择题缺选项」的结果会用到它：分批到达的 HTML 会让题干先出现、选项后到，
+         * 这时页面既没有变化也没有选项，但选项并非不会来，所以不能按「稳定 3 秒」收工。
+         * 结果本身是完整的（选择题都有选项）时完全不参与判定，正常页面行为不变。
+         */
+        hasLoadingQuestionDocument() {
+            for (const { document: current } of (0, dom_8.collectAccessibleDocuments)(document)) {
+                if (current.readyState !== 'loading')
+                    continue;
+                try {
+                    if (current.querySelector(QUESTION_CONTAINER_SELECTOR))
+                        return true;
+                }
+                catch {
+                    // 不可访问的文档直接跳过
+                }
+            }
+            return false;
         }
         collectDocumentCandidates(root) {
             const candidates = [];
             // 跨层收集交给公共遍历工具，和任务卡/章节定位共用同一套 iframe 规则
-            for (const { document: current, depth } of (0, dom_7.collectAccessibleDocuments)(root)) {
+            for (const { document: current, depth } of (0, dom_8.collectAccessibleDocuments)(root)) {
                 try {
                     const result = this.extractor.extract(current);
                     if (result) {
@@ -5781,6 +6444,11 @@ define("application/extraction-service", ["require", "exports", "domain/question
                 const questionDifference = right.result.questions.length - left.result.questions.length;
                 if (questionDifference !== 0)
                     return questionDifference;
+                // 题数相同时优先选选项更完整的候选：同一份题目可能有「只渲染了题干」的中间态，
+                // 若按来源优先级挑选，半渲染的候选会把带选项的完整候选顶掉
+                const richnessDifference = richnessOf(right.result) - richnessOf(left.result);
+                if (richnessDifference !== 0)
+                    return richnessDifference;
                 const priorityDifference = right.sourcePriority - left.sourcePriority;
                 if (priorityDifference !== 0)
                     return priorityDifference;
@@ -5809,7 +6477,7 @@ define("application/extraction-service", ["require", "exports", "domain/question
     }
     exports.ExtractionService = ExtractionService;
 });
-define("application/task-tab-locator", ["require", "exports", "utils/dom", "utils/text"], function (require, exports, dom_8, text_7) {
+define("application/task-tab-locator", ["require", "exports", "utils/dom", "utils/text"], function (require, exports, dom_9, text_7) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.QuestionTabGuard = exports.TaskTabLocator = void 0;
@@ -5838,7 +6506,7 @@ define("application/task-tab-locator", ["require", "exports", "utils/dom", "util
         }
         /** 承载任务卡栏的文档：知识卡片页通常位于同源 iframe 内 */
         holder() {
-            for (const { document: candidate } of (0, dom_8.collectAccessibleDocuments)(this.root)) {
+            for (const { document: candidate } of (0, dom_9.collectAccessibleDocuments)(this.root)) {
                 if (TAB_BAR_SELECTORS.some((selector) => candidate.querySelector(selector)))
                     return candidate;
             }
@@ -5964,12 +6632,14 @@ define("application/task-tab-locator", ["require", "exports", "utils/dom", "util
     }
     exports.QuestionTabGuard = QuestionTabGuard;
 });
-define("application/chapter-extraction-service", ["require", "exports", "domain/question", "extractors/page-context", "utils/async", "utils/hash", "application/chapter-locator", "application/task-tab-locator"], function (require, exports, question_4, page_context_3, async_3, hash_5, chapter_locator_1, task_tab_locator_1) {
+define("application/chapter-extraction-service", ["require", "exports", "domain/question", "extractors/page-context", "utils/async", "utils/hash", "application/chapter-locator", "application/extraction-service", "application/task-tab-locator"], function (require, exports, question_4, page_context_3, async_3, hash_5, chapter_locator_1, extraction_service_1, task_tab_locator_1) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.ChapterExtractionService = void 0;
     // 单章等待上限：章节切换后要依次等卡片页重建 → 任务卡切换 → 答题页加载
     const CHAPTER_SETTLE_TIMEOUT_MS = 20000;
+    // 页面已停在目标章节、没有任务卡可切时，等待「选项中补上来」的额外上限
+    const PARTIAL_FILL_TIMEOUT_MS = 5000;
     // 收尾还原任务卡前的短暂等待：章节页面正在重建，任务卡栏属于新页面
     const RESTORE_TAB_DELAY_MS = 400;
     /** Sequentially visits selected chapters and produces a single aggregate snapshot. */
@@ -6084,9 +6754,14 @@ define("application/chapter-extraction-service", ["require", "exports", "domain/
          * 章节刚切换时旧章节的题目 DOM 可能还在，必须等指纹变化才算本章内容，避免串页。
          */
         async settleChapterResult(options) {
-            // 章节未切换且页面没有任务卡栏：结构不会自己变出题目，只取一次即可
+            // 章节未切换且页面没有任务卡栏：结构不会自己变出题目，只取一次即可。
+            // 例外是「选择题只渲染了题干、选项还没补上」，这种中间态要短暂等待补齐
             if (options.alreadyActive && !options.hasTaskTabs) {
-                return this.extractionService.extract();
+                const immediate = this.extractionService.extract();
+                if (!immediate || (0, extraction_service_1.incompleteChoiceCount)(immediate) === 0)
+                    return immediate;
+                return ((await this.extractionService.settleQuestions({ timeoutMs: PARTIAL_FILL_TIMEOUT_MS })) ??
+                    immediate);
             }
             const guard = new task_tab_locator_1.QuestionTabGuard(this.taskTabs);
             return this.extractionService.settleQuestions({
@@ -6246,6 +6921,8 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 .cwe-header-main { min-width: 0; flex: 1; }
 .cwe-title { margin: 0; font-size: 15px; font-weight: 800; line-height: 1.3; }
+/* 版本号常驻标题右侧：用户报问题时不必再问「装的是哪一版」 */
+.cwe-version { margin-left: 6px; color: var(--cwe-text-muted); font-size: 10.5px; font-weight: 600; }
 .cwe-header-actions { display: flex; gap: 5px; }
 .cwe-icon-button {
   width: 31px;
@@ -6265,7 +6942,10 @@ button { -webkit-tap-highlight-color: transparent; }
 .cwe-scroll::-webkit-scrollbar { width: 6px; }
 .cwe-scroll::-webkit-scrollbar-thumb { background: var(--cwe-border); border-radius: 99px; }
 
+.cwe-status-row { display: flex; align-items: center; gap: 8px; }
 .cwe-status {
+  flex: 1;
+  min-width: 0;
   min-height: 38px;
   display: flex;
   align-items: center;
@@ -6371,6 +7051,8 @@ button { -webkit-tap-highlight-color: transparent; }
   transition: transform 150ms ease;
 }
 .cwe-modal-backdrop[data-open="true"] .cwe-modal { transform: translateY(0) scale(1); }
+/* 章节选择弹窗的条目与标题都更长，单独放宽 */
+.cwe-modal-wide { width: min(560px, calc(100vw - 28px)); }
 .cwe-modal-header { display: flex; align-items: center; gap: 8px; padding: 14px 15px; border-bottom: 1px solid var(--cwe-border); }
 .cwe-modal-title { flex: 1; margin: 0; font-size: 14px; font-weight: 800; }
 .cwe-modal-body { overflow: auto; padding: 14px 15px; }
@@ -6378,8 +7060,11 @@ button { -webkit-tap-highlight-color: transparent; }
 
 .cwe-setting-row { display: grid; grid-template-columns: 118px 1fr; align-items: center; gap: 10px; margin-bottom: 12px; }
 .cwe-setting-row:last-child { margin-bottom: 0; }
+/* 快捷键设置已移到开关组下方，用分隔线与上方区分 */
+.cwe-setting-row-split { margin-top: 2px; padding-top: 13px; border-top: 1px solid var(--cwe-border); }
 .cwe-setting-label { color: var(--cwe-text-secondary); font-size: 11.5px; font-weight: 700; }
-.cwe-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--cwe-border); color: var(--cwe-text-secondary); font-size: 11.5px; }
+/* 开关组行距放宽：原 9px 太挤，与后面的设置行连成一片；标签字重与上方设置行一致 */
+.cwe-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 0; border-top: 1px solid var(--cwe-border); color: var(--cwe-text-secondary); font-size: 11.5px; font-weight: 700; }
 
 .cwe-history-modal {
   display: flex;
@@ -6497,7 +7182,12 @@ button { -webkit-tap-highlight-color: transparent; }
 .cwe-mini-button:hover { border-color: var(--cwe-primary); color: var(--cwe-primary); }
 .cwe-mini-button-danger:hover { border-color: var(--cwe-danger); color: var(--cwe-danger); }
 
-.cwe-chapter-toolbar { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
+.cwe-chapter-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+/* 全选框取代原来的两个按钮，右侧跟选择状态文本 */
+.cwe-chapter-all { display: inline-flex; align-items: center; gap: 7px; color: var(--cwe-text-secondary); cursor: pointer; font-size: 11.5px; font-weight: 700; }
+.cwe-chapter-all input { width: 15px; height: 15px; margin: 0; accent-color: var(--cwe-primary); }
+.cwe-chapter-all:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
+.cwe-chapter-status { color: var(--cwe-text-muted); font-size: 11px; }
 .cwe-chapter-list { display: grid; gap: 6px; max-height: 390px; overflow: auto; }
 .cwe-chapter { display: flex; align-items: flex-start; gap: 8px; padding: 9px; border: 1px solid var(--cwe-border); border-radius: 9px; background: var(--cwe-bg-soft); color: var(--cwe-text-secondary); cursor: pointer; font-size: 11.5px; line-height: 1.4; }
 .cwe-chapter:hover { border-color: var(--cwe-primary); }
@@ -6521,6 +7211,7 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
         onExtractChapters: () => undefined,
         onDownload: () => undefined,
         onCopy: () => undefined,
+        onDiagnose: () => undefined,
         onPreferencesChange: () => undefined,
         onSettingsSave: () => undefined,
         onHistoryRestore: () => undefined,
@@ -6541,6 +7232,13 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
         'true-false',
         'short-answer',
     ];
+    /** 选择题却没有选项的题目数（只做纯数据判断，不依赖应用层） */
+    function countChoiceQuestionsWithoutOptions(result) {
+        return result.questions.filter((question) => {
+            const isChoice = question.type === 'single-choice' || question.type === 'multiple-choice';
+            return isChoice && question.options.length === 0;
+        }).length;
+    }
     function template() {
         return `
     <style>${styles_1.PANEL_STYLES}</style>
@@ -6549,7 +7247,7 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
       <section class="cwe-panel" data-open="false" role="dialog" aria-label="${app_config_1.APP_NAME}">
         <header class="cwe-header">
           <div class="cwe-header-main">
-            <h2 class="cwe-title">学习通题目导出</h2>
+            <h2 class="cwe-title">学习通题目导出<span class="cwe-version">v${app_config_1.APP_VERSION}</span></h2>
           </div>
           <div class="cwe-header-actions">
             <button class="cwe-icon-button" data-action="history" type="button" title="下载历史">${ICONS.history}</button>
@@ -6558,7 +7256,10 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
           </div>
         </header>
         <div class="cwe-scroll">
-          <div class="cwe-status" data-kind="neutral">进入作业、考试或章节练习页面后开始提取</div>
+          <div class="cwe-status-row">
+            <div class="cwe-status" data-kind="neutral">进入作业、考试或章节练习页面后开始提取</div>
+            <button class="cwe-mini-button cwe-diagnose" data-action="diagnose" type="button" hidden>复制诊断信息</button>
+          </div>
           <div class="cwe-extract-grid">
             <button class="cwe-button cwe-button-primary" data-action="extract" type="button">提取当前页面</button>
             <button class="cwe-button cwe-button-soft" data-action="chapters" type="button" disabled>提取多个章节</button>
@@ -6585,7 +7286,6 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
             </div>
             <div class="cwe-options">
               <label class="cwe-check"><input data-option="withAnswers" type="checkbox">附加答案</label>
-              <label class="cwe-check"><input data-option="includeAnalysis" type="checkbox">附加解析</label>
               <label class="cwe-check"><input data-option="withWrong" type="checkbox">附加错题</label>
               <label class="cwe-check"><input data-option="shuffle" type="checkbox">题型内乱序</label>
               <label class="cwe-check"><input data-option="bankImport" type="checkbox">题库导入</label>
@@ -6614,7 +7314,10 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
                 <option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option>
               </select>
             </label>
-            <label class="cwe-setting-row">
+            <label class="cwe-switch-row"><span>允许拖动面板</span><input data-setting="enableDrag" type="checkbox"></label>
+            <label class="cwe-switch-row"><span>记忆面板位置</span><input data-setting="rememberPanelPosition" type="checkbox"></label>
+            <label class="cwe-switch-row"><span>打开窗口自动提取</span><input data-setting="autoExtractOnLoad" type="checkbox"></label>
+            <label class="cwe-setting-row cwe-setting-row-split">
               <span class="cwe-setting-label">提取快捷键</span>
               <input class="cwe-input" data-setting="shortcut" placeholder="Ctrl+Shift+E" />
             </label>
@@ -6622,9 +7325,6 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
               <span class="cwe-setting-label">隐藏快捷键</span>
               <input class="cwe-input" data-setting="hideShortcut" placeholder="Ctrl+Shift+H" />
             </label>
-            <label class="cwe-switch-row"><span>允许拖动面板</span><input data-setting="enableDrag" type="checkbox"></label>
-            <label class="cwe-switch-row"><span>记忆面板位置</span><input data-setting="rememberPanelPosition" type="checkbox"></label>
-            <label class="cwe-switch-row"><span>打开窗口自动提取</span><input data-setting="autoExtractOnLoad" type="checkbox"></label>
           </div>
           <footer class="cwe-modal-footer">
             <button class="cwe-button" data-modal-close="settings" type="button">取消</button>
@@ -6644,15 +7344,17 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
       </div>
 
       <div class="cwe-modal-backdrop" data-modal="chapters" data-open="false">
-        <section class="cwe-modal" role="dialog" aria-modal="true" aria-label="选择章节">
+        <section class="cwe-modal cwe-modal-wide" role="dialog" aria-modal="true" aria-label="选择章节">
           <header class="cwe-modal-header">
             <h3 class="cwe-modal-title">选择要提取的章节</h3>
             <button class="cwe-icon-button" data-modal-close="chapters" type="button">${ICONS.close}</button>
           </header>
           <div class="cwe-modal-body">
             <div class="cwe-chapter-toolbar">
-              <button class="cwe-mini-button" data-action="chapter-all" type="button">全选</button>
-              <button class="cwe-mini-button" data-action="chapter-none" type="button">取消全选</button>
+              <label class="cwe-chapter-all">
+                <input type="checkbox" data-action="chapter-all-toggle" checked><span>全选</span>
+              </label>
+              <span class="cwe-chapter-status" data-chapter-status></span>
             </div>
             <div class="cwe-chapter-list" data-chapter-list></div>
             <div class="cwe-chapter-progress" data-chapter-progress></div>
@@ -6716,14 +7418,23 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
             status.textContent = message;
             status.dataset.kind = kind;
         }
+        /**
+         * 显示/隐藏「复制诊断信息」按钮。
+         * 只在提取结果里存在「选择题却没有选项」时出现 —— 此时真机现场的结构是定位所必需的，
+         * 而离线快照复现不出来；正常结果不显示，避免干扰。
+         */
+        setDiagnoseVisible(visible) {
+            this.element('[data-action="diagnose"]').hidden = !visible;
+        }
         setBusy(action, message) {
             this.busy = action;
-            const controls = this.shadow.querySelectorAll('[data-action="extract"], [data-action="chapters"], [data-action="download"], [data-action="copy"]');
+            const controls = this.shadow.querySelectorAll('[data-action="extract"], [data-action="chapters"], [data-action="download"], [data-action="copy"], [data-action="diagnose"]');
             controls.forEach((button) => {
                 button.disabled = action !== null || this.shouldDisableButton(button.dataset.action ?? '');
             });
             const chapterBusy = action === 'chapters';
             this.element('[data-action="start-chapters"]').disabled = chapterBusy;
+            this.element('[data-action="chapter-all-toggle"]').disabled = chapterBusy;
             this.shadow.querySelectorAll('[data-chapter-list] input').forEach((input) => {
                 input.disabled = chapterBusy;
             });
@@ -6731,9 +7442,12 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
             const chapters = this.element('[data-action="chapters"]');
             const download = this.element('[data-action="download"]');
             const copy = this.element('[data-action="copy"]');
-            extract.innerHTML = action === 'extract' ? '<span class="cwe-progress"></span>提取中' : '提取当前页面';
-            chapters.innerHTML = action === 'chapters' ? '<span class="cwe-progress"></span>遍历中' : '提取多个章节';
-            download.innerHTML = action === 'download' ? '<span class="cwe-progress"></span>生成中' : '下载文件';
+            extract.innerHTML =
+                action === 'extract' ? '<span class="cwe-progress"></span>提取中' : '提取当前页面';
+            chapters.innerHTML =
+                action === 'chapters' ? '<span class="cwe-progress"></span>遍历中' : '提取多个章节';
+            download.innerHTML =
+                action === 'download' ? '<span class="cwe-progress"></span>生成中' : '下载文件';
             copy.innerHTML = action === 'copy' ? '<span class="cwe-progress"></span>复制中' : '复制文本';
             if (message)
                 this.setStatus(message, 'neutral');
@@ -6750,6 +7464,15 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
             this.refreshActionAvailability(true);
             this.updateFilenamePreview();
             const chapterMessage = result.chapters?.length ? `，来自 ${result.chapters.length} 个章节` : '';
+            // 选择题却没有选项，是「页面还没渲染完就采到了」的典型特征：直接说出来，
+            // 否则用户只会看到「已提取 N 道题」而不知道选项这一层根本没取到
+            const withoutOptions = countChoiceQuestionsWithoutOptions(result);
+            this.setDiagnoseVisible(withoutOptions > 0);
+            if (withoutOptions > 0) {
+                this.setStatus(`已提取 ${result.statistics.total} 道题${chapterMessage}，其中 ${withoutOptions} 道选择题没提取到选项` +
+                    `（点「复制诊断信息」把现场结构复制出来发给维护者，比重试更快定位）`, 'warning');
+                return;
+            }
             this.setStatus(`已提取 ${result.statistics.total} 道题${chapterMessage}`, 'success');
         }
         clearResult() {
@@ -6759,6 +7482,7 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
             }
             // 重置为默认显示，等待下次提取结果决定
             this.setAnswerOptionsAvailable(true);
+            this.setDiagnoseVisible(false);
             this.refreshActionAvailability(false);
         }
         setChapterCount(count) {
@@ -6773,13 +7497,14 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
         }
         readExportOptions() {
             const formatElement = this.shadow.querySelector('input[name="cwe-format"]:checked');
-            const format = formatElement?.value === 'txt' || formatElement?.value === 'md' ? formatElement.value : 'word';
+            const format = formatElement?.value === 'txt' || formatElement?.value === 'md'
+                ? formatElement.value
+                : 'word';
             return {
                 format,
                 filename: this.element('[data-field="filename"]').value,
                 withAnswers: this.option('withAnswers').checked,
                 withWrong: this.option('withWrong').checked,
-                includeAnalysis: this.option('includeAnalysis').checked,
                 shuffle: this.option('shuffle').checked,
                 bankImport: format === 'word' && this.option('bankImport').checked,
                 splitByChapter: this.option('splitByChapter').checked,
@@ -6791,7 +7516,6 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
                 format: options.format,
                 withAnswers: options.withAnswers,
                 withWrong: options.withWrong,
-                includeAnalysis: options.includeAnalysis,
                 shuffle: options.shuffle,
                 bankImport: options.bankImport,
                 splitByChapter: options.splitByChapter,
@@ -6804,7 +7528,6 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
                 format.checked = true;
             this.option('withAnswers').checked = options.withAnswers;
             this.option('withWrong').checked = options.withWrong;
-            this.option('includeAnalysis').checked = options.includeAnalysis;
             this.option('shuffle').checked = options.shuffle;
             this.option('bankImport').checked = options.bankImport;
             this.option('splitByChapter').checked = options.splitByChapter && this.chapterCount > 1;
@@ -6821,7 +7544,10 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
             this.element('[data-setting="autoExtractOnLoad"]').checked =
                 settings.autoExtractOnLoad;
             const preferences = settings.exportPreferences;
-            this.applyExportOptions({ ...preferences, filename: this.element('[data-field="filename"]').value });
+            this.applyExportOptions({
+                ...preferences,
+                filename: this.element('[data-field="filename"]').value,
+            });
             this.applyResolvedTheme();
             this.applyPosition(settings.panelPosition);
         }
@@ -6899,12 +7625,41 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
                 label.append(input, text);
                 list.appendChild(label);
             });
-            this.element('[data-chapter-progress]').textContent = `共识别 ${chapters.length} 个章节`;
+            // 章节数改由工具栏右侧的状态文本显示，底部这行留给提取进度
+            this.element('[data-chapter-progress]').textContent = '';
+            this.refreshChapterSelection();
             this.openModal('chapters');
         }
+        /**
+         * 刷新章节弹窗的「全选」框与右侧状态文本。
+         *
+         * 全选框兼作选择状态的指示：全选时勾上、一个都没选时取消、只选了一部分用
+         * indeterminate（半选）表示，避免用户以为「已全选」。
+         */
+        refreshChapterSelection() {
+            const inputs = [...this.shadow.querySelectorAll('[data-chapter-list] input')];
+            const total = inputs.length;
+            const selected = inputs.filter((input) => input.checked).length;
+            const toggle = this.element('[data-action="chapter-all-toggle"]');
+            toggle.checked = total > 0 && selected === total;
+            toggle.indeterminate = selected > 0 && selected < total;
+            this.element('[data-chapter-status]').textContent =
+                total === 0 ? '未识别到章节' : `已选 ${selected} / 共 ${total} 个章节`;
+        }
+        /**
+         * 章节遍历进度。
+         *
+         * `completed` 在 loading 态是「已完成的章节数」、在 success/failed 态是「含本章的完成数」，
+         * 因此直接当「已提取 N/共 M 章节」的计数用。弹窗里的那行给完整信息（状态 + 章节名 + 失败原因），
+         * 面板状态栏同步同一个计数，避免关掉弹窗后看不到进度。
+         */
         updateChapterProgress(progress) {
             const stateLabel = progress.state === 'loading' ? '正在加载' : progress.state === 'success' ? '已完成' : '失败';
-            this.element('[data-chapter-progress]').textContent = `${progress.completed}/${progress.total} · ${stateLabel}：${progress.chapter.title}${progress.message ? `（${progress.message}）` : ''}`;
+            const counter = `已提取 ${progress.completed}/${progress.total} 章节`;
+            const detail = `${progress.chapter.title}${progress.message ? `（${progress.message}）` : ''}`;
+            this.element('[data-chapter-progress]').textContent =
+                `${counter} · ${stateLabel}：${detail}`;
+            this.setStatus(`${counter} · 当前：${progress.chapter.title}`, progress.state === 'failed' ? 'warning' : 'neutral');
         }
         closeChapterDialog() {
             this.closeModal('chapters');
@@ -6920,19 +7675,28 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
             this.element('[data-action="chapters"]').addEventListener('click', () => this.callbacks.onOpenChapters());
             this.element('[data-action="download"]').addEventListener('click', () => this.callbacks.onDownload());
             this.element('[data-action="copy"]').addEventListener('click', () => this.callbacks.onCopy());
+            this.element('[data-action="diagnose"]').addEventListener('click', () => this.callbacks.onDiagnose());
             this.element('[data-action="settings"]').addEventListener('click', () => this.openModal('settings'));
             this.element('[data-action="history"]').addEventListener('click', () => this.openHistory());
-            this.shadow.querySelectorAll('input[name="cwe-format"], [data-option]').forEach((input) => {
+            this.shadow
+                .querySelectorAll('input[name="cwe-format"], [data-option]')
+                .forEach((input) => {
                 input.addEventListener('change', () => {
                     this.updateOptionAvailability(input);
                     this.callbacks.onPreferencesChange(this.readExportPreferences());
                 });
             });
             this.element('[data-action="save-settings"]').addEventListener('click', () => this.saveSettings());
-            this.element('[data-action="chapter-all"]').addEventListener('click', () => this.setAllChapters(true));
-            this.element('[data-action="chapter-none"]').addEventListener('click', () => this.setAllChapters(false));
+            // 全选框取代原来的「全选 / 取消全选」两个按钮
+            this.element('[data-action="chapter-all-toggle"]').addEventListener('change', (event) => {
+                this.setAllChapters(event.target.checked);
+            });
+            // 单章勾选变化时同步工具栏的全选状态与「已选 N / 共 N」文本
+            this.element('[data-chapter-list]').addEventListener('change', () => this.refreshChapterSelection());
             this.element('[data-action="start-chapters"]').addEventListener('click', () => {
-                const indexes = [...this.shadow.querySelectorAll('[data-chapter-list] input:checked')]
+                const indexes = [
+                    ...this.shadow.querySelectorAll('[data-chapter-list] input:checked'),
+                ]
                     .map((input) => Number.parseInt(input.value, 10))
                     .filter(Number.isFinite);
                 this.callbacks.onExtractChapters(indexes);
@@ -6947,7 +7711,9 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
                 });
             });
             this.element('[data-history-list]').addEventListener('click', (event) => {
-                const item = event.target instanceof Element ? event.target.closest('[data-history-id]') : null;
+                const item = event.target instanceof Element
+                    ? event.target.closest('[data-history-id]')
+                    : null;
                 const id = item?.dataset.historyId;
                 if (!id)
                     return;
@@ -7033,14 +7799,12 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
                 this.option('withAnswers').checked = false;
                 this.option('withWrong').checked = false;
                 this.option('shuffle').checked = false;
-                this.option('includeAnalysis').checked = false;
             }
             const bankEnabled = bank.checked;
             if (bankEnabled) {
                 this.option('withAnswers').checked = false;
                 this.option('withWrong').checked = false;
                 this.option('shuffle').checked = false;
-                this.option('includeAnalysis').checked = false;
             }
             // 无参考答案时强制取消勾选（覆盖历史记录恢复的偏好）
             if (!this.answerOptionsAvailable) {
@@ -7050,8 +7814,6 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
             this.option('withAnswers').disabled = bankEnabled;
             this.option('withWrong').disabled = bankEnabled;
             this.option('shuffle').disabled = bankEnabled;
-            this.option('includeAnalysis').disabled =
-                bankEnabled || !(this.option('withAnswers').checked || this.option('withWrong').checked);
             // 题库导入仅在 Word 格式下可用，TXT/MD 格式下始终禁用
             this.option('bankImport').disabled = selectedFormat !== 'word';
             this.option('splitByChapter').disabled = this.chapterCount < 2;
@@ -7071,8 +7833,12 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
         // 控制“附加参考答案/附加错题汇总”选项的显示与勾选状态
         setAnswerOptionsAvailable(available) {
             this.answerOptionsAvailable = available;
-            this.option('withAnswers').closest('.cwe-check')?.classList.toggle('cwe-hidden', !available);
-            this.option('withWrong').closest('.cwe-check')?.classList.toggle('cwe-hidden', !available);
+            this.option('withAnswers')
+                .closest('.cwe-check')
+                ?.classList.toggle('cwe-hidden', !available);
+            this.option('withWrong')
+                .closest('.cwe-check')
+                ?.classList.toggle('cwe-hidden', !available);
             if (!available) {
                 this.option('withAnswers').checked = false;
                 this.option('withWrong').checked = false;
@@ -7090,7 +7856,7 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
             if (action === 'chapters')
                 return this.chapterCount < 2;
             if (action === 'download' || action === 'copy') {
-                return this.element(`[data-action="${action}"]`).dataset.hasResult !== 'true';
+                return (this.element(`[data-action="${action}"]`).dataset.hasResult !== 'true');
             }
             return false;
         }
@@ -7100,12 +7866,14 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
             const rememberPanelPosition = this.element('[data-setting="rememberPanelPosition"]').checked;
             const settings = {
                 ...this.settings,
-                theme: this.element('[data-setting="theme"]').value,
+                theme: this.element('[data-setting="theme"]')
+                    .value,
                 shortcut: (0, shortcut_2.parseShortcut)(this.element('[data-setting="shortcut"]').value, this.settings.shortcut),
                 hideShortcut: (0, shortcut_2.parseShortcut)(this.element('[data-setting="hideShortcut"]').value, this.settings.hideShortcut),
                 enableDrag: this.element('[data-setting="enableDrag"]').checked,
                 rememberPanelPosition,
-                autoExtractOnLoad: this.element('[data-setting="autoExtractOnLoad"]').checked,
+                autoExtractOnLoad: this.element('[data-setting="autoExtractOnLoad"]')
+                    .checked,
                 panelPosition: rememberPanelPosition ? this.settings.panelPosition : null,
                 exportPreferences: this.readExportPreferences(),
             };
@@ -7140,6 +7908,7 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
             this.shadow.querySelectorAll('[data-chapter-list] input').forEach((input) => {
                 input.checked = checked;
             });
+            this.refreshChapterSelection();
         }
         openModal(name) {
             this.closeAllModals();
@@ -7181,7 +7950,7 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
     }
     exports.PanelView = PanelView;
 });
-define("application/app-controller", ["require", "exports", "infrastructure/clipboard-service", "infrastructure/download-service", "infrastructure/history-repository", "infrastructure/logger", "infrastructure/settings-repository", "utils/async", "utils/hash", "utils/dom", "utils/shortcut", "utils/text", "application/task-tab-locator"], function (require, exports, clipboard_service_1, download_service_1, history_repository_1, logger_2, settings_repository_1, async_4, hash_6, dom_9, shortcut_3, text_9, task_tab_locator_2) {
+define("application/app-controller", ["require", "exports", "extractors/dom-diagnostics", "infrastructure/clipboard-service", "infrastructure/download-service", "infrastructure/history-repository", "infrastructure/logger", "infrastructure/settings-repository", "utils/async", "app-config", "utils/hash", "utils/dom", "utils/shortcut", "utils/text", "application/extraction-service", "application/task-tab-locator"], function (require, exports, dom_diagnostics_1, clipboard_service_1, download_service_1, history_repository_1, logger_2, settings_repository_1, async_4, app_config_2, hash_6, dom_10, shortcut_3, text_9, extraction_service_2, task_tab_locator_2) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.AppController = void 0;
@@ -7206,7 +7975,7 @@ define("application/app-controller", ["require", "exports", "infrastructure/clip
             this.logger = new logger_2.Logger();
             this.refreshChaptersDebounced = (0, async_4.debounce)(() => this.refreshChapterAvailability(), 700);
             this.onShortcut = (event) => {
-                if ((0, dom_9.isEditableTarget)(event.target))
+                if ((0, dom_10.isEditableTarget)(event.target))
                     return;
                 if ((0, shortcut_3.matchesShortcut)(event, this.settings.hideShortcut)) {
                     event.preventDefault();
@@ -7232,6 +8001,7 @@ define("application/app-controller", ["require", "exports", "infrastructure/clip
                 onExtractChapters: (indexes) => void this.extractChapters(indexes),
                 onDownload: () => void this.downloadCurrent(),
                 onCopy: () => void this.copyCurrent(),
+                onDiagnose: () => void this.copyDiagnostics(),
                 onPreferencesChange: (preferences) => this.savePreferences(preferences),
                 onSettingsSave: (settings) => this.saveSettings(settings),
                 onHistoryRestore: (id) => this.restoreHistory(id),
@@ -7278,12 +8048,16 @@ define("application/app-controller", ["require", "exports", "infrastructure/clip
          * 取当前页面的题目。
          *
          * 默认停留在「视频/文档」卡时，题目 iframe 的真实地址还留在 `_src` 上，页面里没有题目 DOM：
-         * 此时采样等待并在需要时补切题目卡，题目一出现立即返回，而不是固定等满整段超时。
+         * 此时采样等待并在需要时补切题目卡，避免固定等满整段超时。
+         *
+         * 已经取到题目时也不是立刻收工：答题页会分几批渲染，中途取到的结果可能只有题干、
+         * 选项还没补上，这类「选择题缺选项」的结果要交给采样等待补齐。
          */
         async resolveCurrentResult() {
             const immediate = this.extractionService.extractAccessibleDocuments();
-            if (immediate && immediate.questions.length > 0)
+            if (immediate && immediate.questions.length > 0 && (0, extraction_service_2.incompleteChoiceCount)(immediate) === 0) {
                 return immediate;
+            }
             const guard = new task_tab_locator_2.QuestionTabGuard(this.taskTabs);
             // 页面根本没有题目卡时，结构不会自己变出题目，只留出页面自身渲染的时间
             const timeoutMs = this.taskTabs.questionTabIndex() === null ? PAGE_IDLE_TIMEOUT_MS : QUESTION_SETTLE_TIMEOUT_MS;
@@ -7349,24 +8123,26 @@ define("application/app-controller", ["require", "exports", "infrastructure/clip
                 const failedImages = artifacts.reduce((total, artifact) => total + (artifact.failedImages ?? 0), 0);
                 this.addHistory(this.currentResult, options);
                 // 下载状态提示与主脚本保持一致
+                const warnMsg = failedImages > 0 ? `（${failedImages} 张图片加载失败）` : '';
                 let message;
-                if (options.format === 'word') {
-                    const warnMsg = failedImages > 0 ? `（${failedImages} 张图片加载失败）` : '';
+                if (artifacts.length > 1) {
+                    // 勾选「按章节拆分文件」时，各种格式都是一章一个文件
+                    message = `已下载 ${artifacts.length} 个章节文件`;
+                }
+                else if (options.format === 'word') {
                     const withAnswers = options.bankImport || options.withAnswers;
                     const withWrong = !options.bankImport && options.withWrong;
-                    message =
-                        (options.bankImport
-                            ? '题库导入格式已下载'
-                            : 'Word 试卷' + (withAnswers ? '（含答案）' : '') + (withWrong ? '（含错题）' : '') + '已下载') +
-                            warnMsg;
-                }
-                else if (artifacts.length > 1) {
-                    message = `已下载 ${artifacts.length} 个章节文件`;
+                    message = options.bankImport
+                        ? '题库导入格式已下载'
+                        : 'Word 试卷' +
+                            (withAnswers ? '（含答案）' : '') +
+                            (withWrong ? '（含错题）' : '') +
+                            '已下载';
                 }
                 else {
                     message = '文件已下载';
                 }
-                this.view.setStatus(message, failedImages > 0 ? 'warning' : 'success');
+                this.view.setStatus(message + warnMsg, failedImages > 0 ? 'warning' : 'success');
             }
             catch (error) {
                 this.logger.error('Export failed', error);
@@ -7399,6 +8175,22 @@ define("application/app-controller", ["require", "exports", "infrastructure/clip
             }
             finally {
                 this.view.setBusy(null);
+            }
+        }
+        /**
+         * 复制提取诊断信息。
+         *
+         * 「提取到题干、提取不到选项」在离线快照上复现不出来（快照是渲染完成后的 DOM），
+         * 所以把当前页面各层文档的题目/选项结构一次性复制出来，供定位成因：
+         * 选择器没命中、选项在题目容器之外，还是选项节点本身就解析为空。
+         */
+        async copyDiagnostics() {
+            try {
+                await this.clipboardService.writeText((0, dom_diagnostics_1.buildExtractionDiagnostics)({ version: app_config_2.APP_VERSION }));
+                this.view.setStatus('诊断信息已复制到剪贴板，直接粘贴发给维护者即可', 'success');
+            }
+            catch (error) {
+                this.view.setStatus(`复制诊断失败：${(0, text_9.humanizeError)(error)}`, 'error');
             }
         }
         addHistory(result, options) {
@@ -7477,7 +8269,7 @@ define("application/app-controller", ["require", "exports", "infrastructure/clip
     }
     exports.AppController = AppController;
 });
-define("main", ["require", "exports", "application/app-controller", "application/chapter-extraction-service", "application/chapter-locator", "application/extraction-service", "application/task-tab-locator", "exporters/export-service", "extractors/composite-extractor", "infrastructure/frame-bridge", "ui/panel-view"], function (require, exports, app_controller_1, chapter_extraction_service_1, chapter_locator_2, extraction_service_1, task_tab_locator_3, export_service_1, composite_extractor_3, frame_bridge_2, panel_view_1) {
+define("main", ["require", "exports", "application/app-controller", "application/chapter-extraction-service", "application/chapter-locator", "application/extraction-service", "application/task-tab-locator", "exporters/export-service", "extractors/composite-extractor", "infrastructure/frame-bridge", "ui/panel-view"], function (require, exports, app_controller_1, chapter_extraction_service_1, chapter_locator_2, extraction_service_3, task_tab_locator_3, export_service_1, composite_extractor_4, frame_bridge_2, panel_view_1) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     function inIframe() {
@@ -7490,7 +8282,7 @@ define("main", ["require", "exports", "application/app-controller", "application
     }
     function bootTopWindow() {
         const frameBridge = new frame_bridge_2.FrameBridge();
-        const extractionService = new extraction_service_1.ExtractionService(new composite_extractor_3.CompositeExtractor(), frameBridge);
+        const extractionService = new extraction_service_3.ExtractionService(new composite_extractor_4.CompositeExtractor(), frameBridge);
         // 章节切换与任务卡切换共用同一个定位器实例
         const taskTabs = new task_tab_locator_3.TaskTabLocator();
         const chapterService = new chapter_extraction_service_1.ChapterExtractionService(extractionService, new chapter_locator_2.ChapterLocator(), taskTabs);

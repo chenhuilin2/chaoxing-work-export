@@ -36,13 +36,37 @@ const typeOrder = ['单选'];
 
 test('TXT 格式化保留图片、答案汇总与错题汇总（与主脚本一致）', () => {
   const output = formatOutputWithAnswers(results, typeOrder);
-  // 原版行为：题干与选项各输出两行
   assert.match(output, /1\. 选择正确图片/);
   assert.match(output, /\[图片: https:\/\/example\.com\/a\(1\)\.png\]/);
   assert.match(output, /A\. 选项 A/);
   assert.match(output, /答案汇总/);
   assert.match(output, /一、单选题/);
   assert.match(output, /1\. A/);
+});
+
+/** 统计子串出现次数 */
+function countOccurrences(text, fragment) {
+  return text.split(fragment).length - 1;
+}
+
+test('题干与每个选项各只输出一次（不再连着重两遍）', () => {
+  // 旧主脚本把题干行与选项行各 `output +=` 了两次，移植时按「保持输出一致」照搬，
+  // 结果是导出的每道题都重复两遍；这里锁死「各出现一次」
+  const text = formatOutputWithAnswers(results, typeOrder);
+  assert.equal(countOccurrences(text, '1. 选择正确图片'), 1);
+  assert.equal(countOccurrences(text, 'A. 选项 A'), 1);
+  assert.equal(countOccurrences(text, 'B. 选项 B'), 1);
+
+  const markdown = formatOutputWithAnswersMD(results, typeOrder);
+  assert.equal(countOccurrences(markdown, '**1.** 选择正确图片'), 1);
+  assert.equal(countOccurrences(markdown, '- A. 选项 A'), 1);
+
+  const wrong = formatWrongQuestionsTXT(results, typeOrder);
+  assert.equal(countOccurrences(wrong, '1. (题目)选择正确图片'), 1);
+  assert.equal(countOccurrences(wrong, '我的答案: B'), 1);
+
+  const wrongMarkdown = formatWrongQuestionsMD(results, typeOrder);
+  assert.equal(countOccurrences(wrongMarkdown, '**1.** 选择正确图片'), 1);
 });
 
 test('TXT 错题汇总输出我的答案与正确答案（与主脚本一致）', () => {
@@ -69,7 +93,11 @@ test('Markdown 错题汇总输出我的答案与正确答案（与主脚本一�
 
 test('shuffleQuestions 同类型打乱且保持题目数量', () => {
   const many = {
-    单选: [legacyQuestion, { ...legacyQuestion, correctAnswer: 'C' }, { ...legacyQuestion, correctAnswer: 'D' }],
+    单选: [
+      legacyQuestion,
+      { ...legacyQuestion, correctAnswer: 'C' },
+      { ...legacyQuestion, correctAnswer: 'D' },
+    ],
     多选: [],
     填空: [],
     判断: [],

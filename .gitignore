@@ -9,4 +9,5 @@ coverage/
 *.log
 .DS_Store
 .workbuddy/
-old-version
+old-version/
+html

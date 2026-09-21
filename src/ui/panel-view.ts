@@ -1,4 +1,4 @@
-import { APP_NAME, UI_HOST_ID } from '../app-config';
+import { APP_NAME, APP_VERSION, UI_HOST_ID } from '../app-config';
 import type { ExportOptions } from '../domain/export-options';
 import type { HistoryEntry } from '../domain/history';
 import type { ExtractionResult } from '../domain/question';
@@ -19,6 +19,8 @@ export interface PanelCallbacks {
   readonly onExtractChapters: (indexes: readonly number[]) => void;
   readonly onDownload: () => void;
   readonly onCopy: () => void;
+  /** 复制提取诊断信息：选项提取失败时用来把真机现场带回给维护者 */
+  readonly onDiagnose: () => void;
   readonly onPreferencesChange: (preferences: ExportPreferences) => void;
   readonly onSettingsSave: (settings: UserSettings) => void;
   readonly onHistoryRestore: (id: string) => void;
@@ -33,6 +35,7 @@ const NOOP_CALLBACKS: PanelCallbacks = {
   onExtractChapters: () => undefined,
   onDownload: () => undefined,
   onCopy: () => undefined,
+  onDiagnose: () => undefined,
   onPreferencesChange: () => undefined,
   onSettingsSave: () => undefined,
   onHistoryRestore: () => undefined,
@@ -59,6 +62,14 @@ const TYPE_STAT_KEYS = [
   'short-answer',
 ] as const;
 
+/** 选择题却没有选项的题目数（只做纯数据判断，不依赖应用层） */
+function countChoiceQuestionsWithoutOptions(result: ExtractionResult): number {
+  return result.questions.filter((question) => {
+    const isChoice = question.type === 'single-choice' || question.type === 'multiple-choice';
+    return isChoice && question.options.length === 0;
+  }).length;
+}
+
 function template(): string {
   return `
     <style>${PANEL_STYLES}</style>
@@ -67,7 +78,7 @@ function template(): string {
       <section class="cwe-panel" data-open="false" role="dialog" aria-label="${APP_NAME}">
         <header class="cwe-header">
           <div class="cwe-header-main">
-            <h2 class="cwe-title">学习通题目导出</h2>
+            <h2 class="cwe-title">学习通题目导出<span class="cwe-version">v${APP_VERSION}</span></h2>
           </div>
           <div class="cwe-header-actions">
             <button class="cwe-icon-button" data-action="history" type="button" title="下载历史">${ICONS.history}</button>
@@ -76,7 +87,10 @@ function template(): string {
           </div>
         </header>
         <div class="cwe-scroll">
-          <div class="cwe-status" data-kind="neutral">进入作业、考试或章节练习页面后开始提取</div>
+          <div class="cwe-status-row">
+            <div class="cwe-status" data-kind="neutral">进入作业、考试或章节练习页面后开始提取</div>
+            <button class="cwe-mini-button cwe-diagnose" data-action="diagnose" type="button" hidden>复制诊断信息</button>
+          </div>
           <div class="cwe-extract-grid">
             <button class="cwe-button cwe-button-primary" data-action="extract" type="button">提取当前页面</button>
             <button class="cwe-button cwe-button-soft" data-action="chapters" type="button" disabled>提取多个章节</button>
@@ -103,7 +117,6 @@ function template(): string {
             </div>
             <div class="cwe-options">
               <label class="cwe-check"><input data-option="withAnswers" type="checkbox">附加答案</label>
-              <label class="cwe-check"><input data-option="includeAnalysis" type="checkbox">附加解析</label>
               <label class="cwe-check"><input data-option="withWrong" type="checkbox">附加错题</label>
               <label class="cwe-check"><input data-option="shuffle" type="checkbox">题型内乱序</label>
               <label class="cwe-check"><input data-option="bankImport" type="checkbox">题库导入</label>
@@ -132,7 +145,10 @@ function template(): string {
                 <option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option>
               </select>
             </label>
-            <label class="cwe-setting-row">
+            <label class="cwe-switch-row"><span>允许拖动面板</span><input data-setting="enableDrag" type="checkbox"></label>
+            <label class="cwe-switch-row"><span>记忆面板位置</span><input data-setting="rememberPanelPosition" type="checkbox"></label>
+            <label class="cwe-switch-row"><span>打开窗口自动提取</span><input data-setting="autoExtractOnLoad" type="checkbox"></label>
+            <label class="cwe-setting-row cwe-setting-row-split">
               <span class="cwe-setting-label">提取快捷键</span>
               <input class="cwe-input" data-setting="shortcut" placeholder="Ctrl+Shift+E" />
             </label>
@@ -140,9 +156,6 @@ function template(): string {
               <span class="cwe-setting-label">隐藏快捷键</span>
               <input class="cwe-input" data-setting="hideShortcut" placeholder="Ctrl+Shift+H" />
             </label>
-            <label class="cwe-switch-row"><span>允许拖动面板</span><input data-setting="enableDrag" type="checkbox"></label>
-            <label class="cwe-switch-row"><span>记忆面板位置</span><input data-setting="rememberPanelPosition" type="checkbox"></label>
-            <label class="cwe-switch-row"><span>打开窗口自动提取</span><input data-setting="autoExtractOnLoad" type="checkbox"></label>
           </div>
           <footer class="cwe-modal-footer">
             <button class="cwe-button" data-modal-close="settings" type="button">取消</button>
@@ -162,15 +175,17 @@ function template(): string {
       </div>
 
       <div class="cwe-modal-backdrop" data-modal="chapters" data-open="false">
-        <section class="cwe-modal" role="dialog" aria-modal="true" aria-label="选择章节">
+        <section class="cwe-modal cwe-modal-wide" role="dialog" aria-modal="true" aria-label="选择章节">
           <header class="cwe-modal-header">
             <h3 class="cwe-modal-title">选择要提取的章节</h3>
             <button class="cwe-icon-button" data-modal-close="chapters" type="button">${ICONS.close}</button>
           </header>
           <div class="cwe-modal-body">
             <div class="cwe-chapter-toolbar">
-              <button class="cwe-mini-button" data-action="chapter-all" type="button">全选</button>
-              <button class="cwe-mini-button" data-action="chapter-none" type="button">取消全选</button>
+              <label class="cwe-chapter-all">
+                <input type="checkbox" data-action="chapter-all-toggle" checked><span>全选</span>
+              </label>
+              <span class="cwe-chapter-status" data-chapter-status></span>
             </div>
             <div class="cwe-chapter-list" data-chapter-list></div>
             <div class="cwe-chapter-progress" data-chapter-progress></div>
@@ -242,16 +257,26 @@ export class PanelView {
     status.dataset.kind = kind;
   }
 
+  /**
+   * 显示/隐藏「复制诊断信息」按钮。
+   * 只在提取结果里存在「选择题却没有选项」时出现 —— 此时真机现场的结构是定位所必需的，
+   * 而离线快照复现不出来；正常结果不显示，避免干扰。
+   */
+  setDiagnoseVisible(visible: boolean): void {
+    this.element<HTMLButtonElement>('[data-action="diagnose"]').hidden = !visible;
+  }
+
   setBusy(action: BusyAction, message?: string): void {
     this.busy = action;
     const controls = this.shadow.querySelectorAll<HTMLButtonElement>(
-      '[data-action="extract"], [data-action="chapters"], [data-action="download"], [data-action="copy"]',
+      '[data-action="extract"], [data-action="chapters"], [data-action="download"], [data-action="copy"], [data-action="diagnose"]',
     );
     controls.forEach((button) => {
       button.disabled = action !== null || this.shouldDisableButton(button.dataset.action ?? '');
     });
     const chapterBusy = action === 'chapters';
     this.element<HTMLButtonElement>('[data-action="start-chapters"]').disabled = chapterBusy;
+    this.element<HTMLInputElement>('[data-action="chapter-all-toggle"]').disabled = chapterBusy;
     this.shadow.querySelectorAll<HTMLInputElement>('[data-chapter-list] input').forEach((input) => {
       input.disabled = chapterBusy;
     });
@@ -260,9 +285,12 @@ export class PanelView {
     const chapters = this.element<HTMLButtonElement>('[data-action="chapters"]');
     const download = this.element<HTMLButtonElement>('[data-action="download"]');
     const copy = this.element<HTMLButtonElement>('[data-action="copy"]');
-    extract.innerHTML = action === 'extract' ? '<span class="cwe-progress"></span>提取中' : '提取当前页面';
-    chapters.innerHTML = action === 'chapters' ? '<span class="cwe-progress"></span>遍历中' : '提取多个章节';
-    download.innerHTML = action === 'download' ? '<span class="cwe-progress"></span>生成中' : '下载文件';
+    extract.innerHTML =
+      action === 'extract' ? '<span class="cwe-progress"></span>提取中' : '提取当前页面';
+    chapters.innerHTML =
+      action === 'chapters' ? '<span class="cwe-progress"></span>遍历中' : '提取多个章节';
+    download.innerHTML =
+      action === 'download' ? '<span class="cwe-progress"></span>生成中' : '下载文件';
     copy.innerHTML = action === 'copy' ? '<span class="cwe-progress"></span>复制中' : '复制文本';
     if (message) this.setStatus(message, 'neutral');
   }
@@ -273,12 +301,26 @@ export class PanelView {
       this.stat(name).textContent = String(count);
       this.setStatVisible(name, count > 0);
     }
-    this.element<HTMLInputElement>('[data-field="filename"]').value = sanitizeFilename(result.title);
+    this.element<HTMLInputElement>('[data-field="filename"]').value = sanitizeFilename(
+      result.title,
+    );
     // 提取结果无参考答案时，隐藏“附加参考答案/附加错题汇总”选项
     this.setAnswerOptionsAvailable(result.statistics.withCorrectAnswer > 0);
     this.refreshActionAvailability(true);
     this.updateFilenamePreview();
     const chapterMessage = result.chapters?.length ? `，来自 ${result.chapters.length} 个章节` : '';
+    // 选择题却没有选项，是「页面还没渲染完就采到了」的典型特征：直接说出来，
+    // 否则用户只会看到「已提取 N 道题」而不知道选项这一层根本没取到
+    const withoutOptions = countChoiceQuestionsWithoutOptions(result);
+    this.setDiagnoseVisible(withoutOptions > 0);
+    if (withoutOptions > 0) {
+      this.setStatus(
+        `已提取 ${result.statistics.total} 道题${chapterMessage}，其中 ${withoutOptions} 道选择题没提取到选项` +
+          `（点「复制诊断信息」把现场结构复制出来发给维护者，比重试更快定位）`,
+        'warning',
+      );
+      return;
+    }
     this.setStatus(`已提取 ${result.statistics.total} 道题${chapterMessage}`, 'success');
   }
 
@@ -289,6 +331,7 @@ export class PanelView {
     }
     // 重置为默认显示，等待下次提取结果决定
     this.setAnswerOptionsAvailable(true);
+    this.setDiagnoseVisible(false);
     this.refreshActionAvailability(false);
   }
 
@@ -303,14 +346,18 @@ export class PanelView {
   }
 
   readExportOptions(): ExportOptions {
-    const formatElement = this.shadow.querySelector<HTMLInputElement>('input[name="cwe-format"]:checked');
-    const format = formatElement?.value === 'txt' || formatElement?.value === 'md' ? formatElement.value : 'word';
+    const formatElement = this.shadow.querySelector<HTMLInputElement>(
+      'input[name="cwe-format"]:checked',
+    );
+    const format =
+      formatElement?.value === 'txt' || formatElement?.value === 'md'
+        ? formatElement.value
+        : 'word';
     return {
       format,
       filename: this.element<HTMLInputElement>('[data-field="filename"]').value,
       withAnswers: this.option('withAnswers').checked,
       withWrong: this.option('withWrong').checked,
-      includeAnalysis: this.option('includeAnalysis').checked,
       shuffle: this.option('shuffle').checked,
       bankImport: format === 'word' && this.option('bankImport').checked,
       splitByChapter: this.option('splitByChapter').checked,
@@ -323,7 +370,6 @@ export class PanelView {
       format: options.format,
       withAnswers: options.withAnswers,
       withWrong: options.withWrong,
-      includeAnalysis: options.includeAnalysis,
       shuffle: options.shuffle,
       bankImport: options.bankImport,
       splitByChapter: options.splitByChapter,
@@ -338,7 +384,6 @@ export class PanelView {
     if (format) format.checked = true;
     this.option('withAnswers').checked = options.withAnswers;
     this.option('withWrong').checked = options.withWrong;
-    this.option('includeAnalysis').checked = options.includeAnalysis;
     this.option('shuffle').checked = options.shuffle;
     this.option('bankImport').checked = options.bankImport;
     this.option('splitByChapter').checked = options.splitByChapter && this.chapterCount > 1;
@@ -348,7 +393,9 @@ export class PanelView {
   applySettings(settings: UserSettings): void {
     this.settings = settings;
     this.element<HTMLSelectElement>('[data-setting="theme"]').value = settings.theme;
-    this.element<HTMLInputElement>('[data-setting="shortcut"]').value = formatShortcut(settings.shortcut);
+    this.element<HTMLInputElement>('[data-setting="shortcut"]').value = formatShortcut(
+      settings.shortcut,
+    );
     this.element<HTMLInputElement>('[data-setting="hideShortcut"]').value = formatShortcut(
       settings.hideShortcut,
     );
@@ -358,7 +405,10 @@ export class PanelView {
     this.element<HTMLInputElement>('[data-setting="autoExtractOnLoad"]').checked =
       settings.autoExtractOnLoad;
     const preferences = settings.exportPreferences;
-    this.applyExportOptions({ ...preferences, filename: this.element<HTMLInputElement>('[data-field="filename"]').value });
+    this.applyExportOptions({
+      ...preferences,
+      filename: this.element<HTMLInputElement>('[data-field="filename"]').value,
+    });
     this.applyResolvedTheme();
     this.applyPosition(settings.panelPosition);
   }
@@ -444,13 +494,47 @@ export class PanelView {
       label.append(input, text);
       list.appendChild(label);
     });
-    this.element<HTMLElement>('[data-chapter-progress]').textContent = `共识别 ${chapters.length} 个章节`;
+    // 章节数改由工具栏右侧的状态文本显示，底部这行留给提取进度
+    this.element<HTMLElement>('[data-chapter-progress]').textContent = '';
+    this.refreshChapterSelection();
     this.openModal('chapters');
   }
 
+  /**
+   * 刷新章节弹窗的「全选」框与右侧状态文本。
+   *
+   * 全选框兼作选择状态的指示：全选时勾上、一个都没选时取消、只选了一部分用
+   * indeterminate（半选）表示，避免用户以为「已全选」。
+   */
+  private refreshChapterSelection(): void {
+    const inputs = [...this.shadow.querySelectorAll<HTMLInputElement>('[data-chapter-list] input')];
+    const total = inputs.length;
+    const selected = inputs.filter((input) => input.checked).length;
+    const toggle = this.element<HTMLInputElement>('[data-action="chapter-all-toggle"]');
+    toggle.checked = total > 0 && selected === total;
+    toggle.indeterminate = selected > 0 && selected < total;
+    this.element<HTMLElement>('[data-chapter-status]').textContent =
+      total === 0 ? '未识别到章节' : `已选 ${selected} / 共 ${total} 个章节`;
+  }
+
+  /**
+   * 章节遍历进度。
+   *
+   * `completed` 在 loading 态是「已完成的章节数」、在 success/failed 态是「含本章的完成数」，
+   * 因此直接当「已提取 N/共 M 章节」的计数用。弹窗里的那行给完整信息（状态 + 章节名 + 失败原因），
+   * 面板状态栏同步同一个计数，避免关掉弹窗后看不到进度。
+   */
   updateChapterProgress(progress: ChapterProgress): void {
-    const stateLabel = progress.state === 'loading' ? '正在加载' : progress.state === 'success' ? '已完成' : '失败';
-    this.element<HTMLElement>('[data-chapter-progress]').textContent = `${progress.completed}/${progress.total} · ${stateLabel}：${progress.chapter.title}${progress.message ? `（${progress.message}）` : ''}`;
+    const stateLabel =
+      progress.state === 'loading' ? '正在加载' : progress.state === 'success' ? '已完成' : '失败';
+    const counter = `已提取 ${progress.completed}/${progress.total} 章节`;
+    const detail = `${progress.chapter.title}${progress.message ? `（${progress.message}）` : ''}`;
+    this.element<HTMLElement>('[data-chapter-progress]').textContent =
+      `${counter} · ${stateLabel}：${detail}`;
+    this.setStatus(
+      `${counter} · 当前：${progress.chapter.title}`,
+      progress.state === 'failed' ? 'warning' : 'neutral',
+    );
   }
 
   closeChapterDialog(): void {
@@ -465,25 +549,51 @@ export class PanelView {
   private bindEvents(): void {
     this.launcher().addEventListener('click', () => this.open());
     this.element('[data-action="close"]').addEventListener('click', () => this.close());
-    this.element('[data-action="extract"]').addEventListener('click', () => this.callbacks.onExtract());
-    this.element('[data-action="chapters"]').addEventListener('click', () => this.callbacks.onOpenChapters());
-    this.element('[data-action="download"]').addEventListener('click', () => this.callbacks.onDownload());
+    this.element('[data-action="extract"]').addEventListener('click', () =>
+      this.callbacks.onExtract(),
+    );
+    this.element('[data-action="chapters"]').addEventListener('click', () =>
+      this.callbacks.onOpenChapters(),
+    );
+    this.element('[data-action="download"]').addEventListener('click', () =>
+      this.callbacks.onDownload(),
+    );
     this.element('[data-action="copy"]').addEventListener('click', () => this.callbacks.onCopy());
-    this.element('[data-action="settings"]').addEventListener('click', () => this.openModal('settings'));
+    this.element('[data-action="diagnose"]').addEventListener('click', () =>
+      this.callbacks.onDiagnose(),
+    );
+    this.element('[data-action="settings"]').addEventListener('click', () =>
+      this.openModal('settings'),
+    );
     this.element('[data-action="history"]').addEventListener('click', () => this.openHistory());
 
-    this.shadow.querySelectorAll<HTMLInputElement>('input[name="cwe-format"], [data-option]').forEach((input) => {
-      input.addEventListener('change', () => {
-        this.updateOptionAvailability(input);
-        this.callbacks.onPreferencesChange(this.readExportPreferences());
+    this.shadow
+      .querySelectorAll<HTMLInputElement>('input[name="cwe-format"], [data-option]')
+      .forEach((input) => {
+        input.addEventListener('change', () => {
+          this.updateOptionAvailability(input);
+          this.callbacks.onPreferencesChange(this.readExportPreferences());
+        });
       });
-    });
 
-    this.element('[data-action="save-settings"]').addEventListener('click', () => this.saveSettings());
-    this.element('[data-action="chapter-all"]').addEventListener('click', () => this.setAllChapters(true));
-    this.element('[data-action="chapter-none"]').addEventListener('click', () => this.setAllChapters(false));
+    this.element('[data-action="save-settings"]').addEventListener('click', () =>
+      this.saveSettings(),
+    );
+    // 全选框取代原来的「全选 / 取消全选」两个按钮
+    this.element<HTMLInputElement>('[data-action="chapter-all-toggle"]').addEventListener(
+      'change',
+      (event) => {
+        this.setAllChapters((event.target as HTMLInputElement).checked);
+      },
+    );
+    // 单章勾选变化时同步工具栏的全选状态与「已选 N / 共 N」文本
+    this.element<HTMLElement>('[data-chapter-list]').addEventListener('change', () =>
+      this.refreshChapterSelection(),
+    );
     this.element('[data-action="start-chapters"]').addEventListener('click', () => {
-      const indexes = [...this.shadow.querySelectorAll<HTMLInputElement>('[data-chapter-list] input:checked')]
+      const indexes = [
+        ...this.shadow.querySelectorAll<HTMLInputElement>('[data-chapter-list] input:checked'),
+      ]
         .map((input) => Number.parseInt(input.value, 10))
         .filter(Number.isFinite);
       this.callbacks.onExtractChapters(indexes);
@@ -499,12 +609,16 @@ export class PanelView {
     });
 
     this.element<HTMLElement>('[data-history-list]').addEventListener('click', (event) => {
-      const item = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-history-id]') : null;
+      const item =
+        event.target instanceof Element
+          ? event.target.closest<HTMLElement>('[data-history-id]')
+          : null;
       const id = item?.dataset.historyId;
       if (!id) return;
-      const actionBtn = event.target instanceof Element
-        ? event.target.closest<HTMLButtonElement>('[data-history-action]')
-        : null;
+      const actionBtn =
+        event.target instanceof Element
+          ? event.target.closest<HTMLButtonElement>('[data-history-action]')
+          : null;
       // 与主脚本一致：点击条目本身恢复，图标按钮分别触发重新下载/删除
       if (actionBtn) {
         const action = actionBtn.dataset.historyAction;
@@ -517,7 +631,9 @@ export class PanelView {
 
     window.addEventListener('keydown', (event) => {
       if (event.key !== 'Escape') return;
-      const openModal = this.shadow.querySelector<HTMLElement>('.cwe-modal-backdrop[data-open="true"]');
+      const openModal = this.shadow.querySelector<HTMLElement>(
+        '.cwe-modal-backdrop[data-open="true"]',
+      );
       if (openModal) this.closeModal(openModal.dataset.modal ?? '');
       else if (this.panel().dataset.open === 'true') this.close();
     });
@@ -568,16 +684,19 @@ export class PanelView {
   }
 
   private updateOptionAvailability(changed?: HTMLInputElement): void {
-    const selectedFormat = this.shadow.querySelector<HTMLInputElement>('input[name="cwe-format"]:checked')?.value;
+    const selectedFormat = this.shadow.querySelector<HTMLInputElement>(
+      'input[name="cwe-format"]:checked',
+    )?.value;
     const bank = this.option('bankImport');
     if (selectedFormat !== 'word') bank.checked = false;
     if (changed === bank && bank.checked) {
-      const word = this.shadow.querySelector<HTMLInputElement>('input[name="cwe-format"][value="word"]');
+      const word = this.shadow.querySelector<HTMLInputElement>(
+        'input[name="cwe-format"][value="word"]',
+      );
       if (word) word.checked = true;
       this.option('withAnswers').checked = false;
       this.option('withWrong').checked = false;
       this.option('shuffle').checked = false;
-      this.option('includeAnalysis').checked = false;
     }
 
     const bankEnabled = bank.checked;
@@ -585,7 +704,6 @@ export class PanelView {
       this.option('withAnswers').checked = false;
       this.option('withWrong').checked = false;
       this.option('shuffle').checked = false;
-      this.option('includeAnalysis').checked = false;
     }
     // 无参考答案时强制取消勾选（覆盖历史记录恢复的偏好）
     if (!this.answerOptionsAvailable) {
@@ -595,8 +713,6 @@ export class PanelView {
     this.option('withAnswers').disabled = bankEnabled;
     this.option('withWrong').disabled = bankEnabled;
     this.option('shuffle').disabled = bankEnabled;
-    this.option('includeAnalysis').disabled =
-      bankEnabled || !(this.option('withAnswers').checked || this.option('withWrong').checked);
     // 题库导入仅在 Word 格式下可用，TXT/MD 格式下始终禁用
     this.option('bankImport').disabled = selectedFormat !== 'word';
     this.option('splitByChapter').disabled = this.chapterCount < 2;
@@ -618,8 +734,12 @@ export class PanelView {
   // 控制“附加参考答案/附加错题汇总”选项的显示与勾选状态
   private setAnswerOptionsAvailable(available: boolean): void {
     this.answerOptionsAvailable = available;
-    this.option('withAnswers').closest<HTMLElement>('.cwe-check')?.classList.toggle('cwe-hidden', !available);
-    this.option('withWrong').closest<HTMLElement>('.cwe-check')?.classList.toggle('cwe-hidden', !available);
+    this.option('withAnswers')
+      .closest<HTMLElement>('.cwe-check')
+      ?.classList.toggle('cwe-hidden', !available);
+    this.option('withWrong')
+      .closest<HTMLElement>('.cwe-check')
+      ?.classList.toggle('cwe-hidden', !available);
     if (!available) {
       this.option('withAnswers').checked = false;
       this.option('withWrong').checked = false;
@@ -638,7 +758,9 @@ export class PanelView {
   private shouldDisableButton(action: string): boolean {
     if (action === 'chapters') return this.chapterCount < 2;
     if (action === 'download' || action === 'copy') {
-      return this.element<HTMLButtonElement>(`[data-action="${action}"]`).dataset.hasResult !== 'true';
+      return (
+        this.element<HTMLButtonElement>(`[data-action="${action}"]`).dataset.hasResult !== 'true'
+      );
     }
     return false;
   }
@@ -650,7 +772,8 @@ export class PanelView {
     ).checked;
     const settings: UserSettings = {
       ...this.settings,
-      theme: this.element<HTMLSelectElement>('[data-setting="theme"]').value as UserSettings['theme'],
+      theme: this.element<HTMLSelectElement>('[data-setting="theme"]')
+        .value as UserSettings['theme'],
       shortcut: parseShortcut(
         this.element<HTMLInputElement>('[data-setting="shortcut"]').value,
         this.settings.shortcut,
@@ -661,8 +784,8 @@ export class PanelView {
       ),
       enableDrag: this.element<HTMLInputElement>('[data-setting="enableDrag"]').checked,
       rememberPanelPosition,
-      autoExtractOnLoad:
-        this.element<HTMLInputElement>('[data-setting="autoExtractOnLoad"]').checked,
+      autoExtractOnLoad: this.element<HTMLInputElement>('[data-setting="autoExtractOnLoad"]')
+        .checked,
       panelPosition: rememberPanelPosition ? this.settings.panelPosition : null,
       exportPreferences: this.readExportPreferences(),
     };
@@ -688,7 +811,10 @@ export class PanelView {
       panel.style.removeProperty('right');
       return;
     }
-    const left = Math.min(Math.max(0, position.left), Math.max(0, window.innerWidth - panel.offsetWidth));
+    const left = Math.min(
+      Math.max(0, position.left),
+      Math.max(0, window.innerWidth - panel.offsetWidth),
+    );
     const top = Math.min(Math.max(0, position.top), Math.max(0, window.innerHeight - 48));
     panel.style.left = `${left}px`;
     panel.style.top = `${top}px`;
@@ -699,6 +825,7 @@ export class PanelView {
     this.shadow.querySelectorAll<HTMLInputElement>('[data-chapter-list] input').forEach((input) => {
       input.checked = checked;
     });
+    this.refreshChapterSelection();
   }
 
   private openModal(name: string): void {

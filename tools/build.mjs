@@ -21,12 +21,39 @@ if (result.status !== 0) {
   process.exit(result.status ?? 1);
 }
 
-const [metadataTemplate, compiledAmdBundle] = await Promise.all([
+/**
+ * 解析发布版本号。
+ *
+ * 项目规定「新版本记录一律写入 CHANGELOG.md」，因此油猴 `@version` 以 CHANGELOG 顶部
+ * 条目的版本为准；`package.json` 只作兜底。此前 @version 固定取 package.json，而它长期
+ * 停留在 3.0.0、CHANGELOG 却已到 3.0.x，导致每次构建出来的脚本版本号都是 v3.0.0，
+ * 无法判断手上装的是哪一版。
+ */
+async function resolveVersion() {
+  try {
+    const changelog = await readFile(path.join(root, 'CHANGELOG.md'), 'utf8');
+    const match = changelog.match(/^##[ \t]+(\d+\.\d+\.\d+)[ \t]*$/m);
+    if (!match?.[1]) return { version: packageJson.version, source: 'package.json（CHANGELOG 无版本条目）' };
+    const version = match[1];
+    if (version !== packageJson.version) {
+      console.warn(
+        `[build] 版本号不一致：CHANGELOG=${version}，package.json=${packageJson.version}；` +
+          `@version 以 CHANGELOG 为准，建议同步 package.json。`,
+      );
+    }
+    return { version, source: 'CHANGELOG.md' };
+  } catch {
+    return { version: packageJson.version, source: 'package.json' };
+  }
+}
+
+const [metadataTemplate, compiledAmdBundle, resolved] = await Promise.all([
   readFile(path.join(root, 'src', 'userscript.meta.txt'), 'utf8'),
   readFile(path.join(tempDir, 'chaoxing-work-export.amd.js'), 'utf8'),
+  resolveVersion(),
 ]);
-const metadata = metadataTemplate.replaceAll('__VERSION__', packageJson.version).trimEnd();
-const amdBundle = compiledAmdBundle.replaceAll('__APP_VERSION__', packageJson.version);
+const metadata = metadataTemplate.replaceAll('__VERSION__', resolved.version).trimEnd();
+const amdBundle = compiledAmdBundle.replaceAll('__APP_VERSION__', resolved.version);
 
 const runtime = String.raw`(function () {
   'use strict';
@@ -89,4 +116,6 @@ const output = `${metadata}\n\n${runtime}\n`;
 await writeFile(path.join(distDir, 'chaoxing-work-export.user.js'), output, 'utf8');
 await writeFile(path.join(distDir, 'chaoxing-work-export.meta.js'), `${metadata}\n`, 'utf8');
 
-console.log(`Built dist/chaoxing-work-export.user.js (${Buffer.byteLength(output)} bytes)`);
+console.log(
+  `Built dist/chaoxing-work-export.user.js (${Buffer.byteLength(output)} bytes, @version ${resolved.version} ← ${resolved.source})`,
+);

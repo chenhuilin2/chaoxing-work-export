@@ -5,7 +5,6 @@ export interface ExportOptions {
   readonly filename: string;
   readonly withAnswers: boolean;
   readonly withWrong: boolean;
-  readonly includeAnalysis: boolean;
   readonly shuffle: boolean;
   readonly bankImport: boolean;
   readonly splitByChapter: boolean;

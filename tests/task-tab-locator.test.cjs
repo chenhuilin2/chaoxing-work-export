@@ -10,7 +10,7 @@ const {
 } = require('../.tmp/test/src/application/task-tab-locator.js');
 const { collectAccessibleDocuments } = require('../.tmp/test/src/utils/dom.js');
 
-/** 与 html/章节测验.html 一致的任务卡栏，默认激活「视频」 */
+/** 与 html/章节练习完整页.html 一致的任务卡栏，默认激活「视频」 */
 const TAB_BAR_HTML = `
 <div class="prev_list" id="prev_tab">
   <ul class="prev_ul clearfix">

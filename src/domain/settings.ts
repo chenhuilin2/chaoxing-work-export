@@ -18,7 +18,6 @@ export interface ExportPreferences {
   readonly format: ExportFormat;
   readonly withAnswers: boolean;
   readonly withWrong: boolean;
-  readonly includeAnalysis: boolean;
   readonly shuffle: boolean;
   readonly bankImport: boolean;
   readonly splitByChapter: boolean;
@@ -43,7 +42,6 @@ export const DEFAULT_SETTINGS: UserSettings = {
     format: 'word',
     withAnswers: false,
     withWrong: false,
-    includeAnalysis: true,
     shuffle: false,
     bankImport: false,
     splitByChapter: false,
@@ -51,5 +49,6 @@ export const DEFAULT_SETTINGS: UserSettings = {
   enableDrag: false,
   rememberPanelPosition: true,
   panelPosition: null,
-  autoExtractOnLoad: false,
+  // 默认打开：进入作业/考试/章节练习页即自动提取一次（用户可在设置里关掉）
+  autoExtractOnLoad: true,
 };

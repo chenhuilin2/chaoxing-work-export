@@ -208,7 +208,6 @@ function migrateLegacyEntry(value: unknown): HistoryEntry | null {
     filename: typeof legacyOptions.filename === 'string' ? legacyOptions.filename : title,
     withAnswers: legacyOptions.withAnswers === true,
     withWrong: legacyOptions.withWrong === true,
-    includeAnalysis: legacyOptions.includeAnalysis !== false,
     shuffle: legacyOptions.shuffle === true,
     bankImport: legacyOptions.bankImport === true,
     splitByChapter: legacyOptions.splitByChapter === true,

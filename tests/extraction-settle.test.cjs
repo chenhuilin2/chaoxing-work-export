@@ -14,7 +14,7 @@ const { ChapterLocator } = require('../.tmp/test/src/application/chapter-locator
 const { TaskTabLocator } = require('../.tmp/test/src/application/task-tab-locator.js');
 const { richContentToText } = require('../.tmp/test/src/extractors/rich-content.js');
 
-/** 与 html/章节测验.html 一致的目录树：一个分组标题 + 两个章节 */
+/** 与 html/章节练习完整页.html 一致的目录树：一个分组标题 + 两个章节 */
 const CATALOG_HTML = `
 <div id="coursetree">
   <div class="posCatalog_list">
@@ -144,7 +144,7 @@ test('外层壳没有 .prev_title 时，标题仍取题目所在文档自己的�
   assert.equal(result.title, '做作业');
 });
 
-test('题目已就绪时采样立即返回，不等满超时', async () => {
+test('题目已就绪时采样在「渲染稳定」后返回，不等满超时', async () => {
   useGlobalDocument(createDocument(renderQuestion()));
   const startedAt = Date.now();
   const result = await new ExtractionService().settleQuestions({ timeoutMs: 5_000 });
@@ -152,7 +152,83 @@ test('题目已就绪时采样立即返回，不等满超时', async () => {
 
   assert.notEqual(result, null);
   assert.equal(result.questions.length, 1);
-  assert.ok(elapsed < 300, `应立即返回，实际耗时 ${elapsed}ms`);
+  assert.equal(result.questions[0].options.length, 4);
+  // 需要连续多帧一致才认为渲染完毕（SETTLE_STABLE_MS = 600），远低于 5s 上限
+  assert.ok(elapsed < 1_500, `应在稳定窗口后返回，实际耗时 ${elapsed}ms`);
+});
+
+test('选项晚于题干渲染时，采样会把选项补齐，不会只拿到题干', async () => {
+  const answer = createDocument(renderQuestion());
+  useGlobalDocument(answer);
+
+  // 模拟答题页分批渲染：先只出现题干，选项稍后才补进 DOM
+  const list = answer.querySelector('.Zy_ulTop');
+  const options = [...list.children];
+  options.forEach((option) => option.remove());
+  window.setTimeout(() => options.forEach((option) => list.appendChild(option)), 300);
+
+  const result = await new ExtractionService().settleQuestions({ timeoutMs: 5_000 });
+
+  assert.notEqual(result, null);
+  assert.equal(result.questions.length, 1);
+  // 关键：中间态（选择题缺选项）必须被继续等待补齐，而不是当作最终结果返回
+  assert.equal(result.questions[0].options.length, 4);
+  assert.equal(
+    result.questions[0].options.map((option) => option.key).join(''),
+    'ABCD',
+  );
+});
+
+test('选项始终不到、但文档仍在加载时，不按兜底提前返回（继续等选项）', async () => {
+  const answer = createDocument(renderQuestion());
+  useGlobalDocument(answer);
+  // 真实场景：答题页这个 HTML 还没解析完（题干已入 DOM、同一题的选项还在后面）
+  Object.defineProperty(answer, 'readyState', { get: () => 'loading', configurable: true });
+
+  const list = answer.querySelector('.Zy_ulTop');
+  const options = [...list.children];
+  options.forEach((option) => option.remove());
+  // 选项晚于 PARTIAL_SETTLE_MS（3000）才补上：旧实现会在 3s 交出「只有题干」的结果
+  window.setTimeout(() => options.forEach((option) => list.appendChild(option)), 3_200);
+
+  const startedAt = Date.now();
+  const result = await new ExtractionService().settleQuestions({ timeoutMs: 8_000 });
+  const elapsed = Date.now() - startedAt;
+
+  assert.notEqual(result, null);
+  assert.equal(result.questions.length, 1);
+  assert.equal(result.questions[0].options.length, 4);
+  assert.ok(elapsed >= 3_200, `应一直等到选项到达，实际耗时 ${elapsed}ms`);
+  assert.ok(elapsed < 6_000, `不应拖到超时上限，实际耗时 ${elapsed}ms`);
+});
+
+test('选择题始终没有选项时不死等，稳定后按兜底返回', async () => {
+  const answer = createDocument(renderQuestion());
+  useGlobalDocument(answer);
+  answer.querySelector('.Zy_ulTop').remove();
+
+  const startedAt = Date.now();
+  const result = await new ExtractionService().settleQuestions({ timeoutMs: 20_000 });
+  const elapsed = Date.now() - startedAt;
+
+  assert.notEqual(result, null);
+  assert.equal(result.questions.length, 1);
+  assert.equal(result.questions[0].options.length, 0);
+  // PARTIAL_SETTLE_MS = 3000，不应拖到 20s 上限
+  assert.ok(elapsed < 5_000, `应兜底返回，实际耗时 ${elapsed}ms`);
+});
+
+test('结果指纹包含选项变化，因此「补上选项」会被识别为新内容', () => {
+  const answer = createDocument(renderQuestion());
+  useGlobalDocument(answer);
+  const service = new ExtractionService();
+  const withOptions = service.extract();
+  answer.querySelector('.Zy_ulTop').remove();
+  const withoutOptions = service.extract();
+
+  assert.notEqual(withOptions, null);
+  assert.notEqual(withoutOptions, null);
+  assert.notEqual(service.fingerprint(withOptions), service.fingerprint(withoutOptions));
 });
 
 test('页面没有题目时按超时上限结束，不拖长尾', async () => {
@@ -194,5 +270,5 @@ test('批量提取：章节已激活时不空等，直接采用当前题目', as
 
   assert.equal(result.chapters[0].title, '导论1');
   assert.equal(result.chapters[0].questions.length, 1);
-  assert.ok(elapsed < 1_000, `应立即返回，实际耗时 ${elapsed}ms`);
+  assert.ok(elapsed < 1_500, `应立即返回，实际耗时 ${elapsed}ms`);
 });

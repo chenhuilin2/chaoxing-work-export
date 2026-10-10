@@ -1,10 +1,26 @@
+// 学习通目录树的真实结构是两级（见 src/domain/chapter.ts 的说明）：
+//   章：`.posCatalog_select.firstLayer > .posCatalog_title`（分组标题，点不开、不能提取）
+//   小节：`.posCatalog_level` 下的 `.posCatalog_name`（唯一挂 onclick、真正能提取的条目）
+// 两级都把编号印在 `<em class="posCatalog_sbar">` 里（章是「1」、小节是「1.1」），
+// 因此这里读页面的真编号，而不是按顺序现编。
+import type { ChapterGroupInfo } from '../domain/chapter';
 import { normalizeInlineWhitespace } from '../utils/text';
 
 export interface ChapterDescriptor {
   readonly index: number;
   readonly id: string;
+  /** 小节名（不含编号） */
   readonly title: string;
+  /** 页面上的小节编号（「1.1」）；页面没给编号时为空串 */
+  readonly label: string;
   readonly active: boolean;
+  /** 所属章；扁平目录（没有第一级分组）时为 null */
+  readonly group: ChapterGroupInfo | null;
+}
+
+interface CatalogEntry {
+  readonly element: HTMLElement;
+  readonly group: ChapterGroupInfo | null;
 }
 
 const CHAPTER_CONTAINER_SELECTORS = [
@@ -27,22 +43,34 @@ const CHAPTER_ITEM_SELECTORS = [
 ] as const;
 
 // 分组标题：第一级目录项（真实结构为 .posCatalog_select.firstLayer > span.posCatalog_title），
-// 它们不是可提取章节，必须排除
+// 它们不是可提取章节，但要作为「章」标题参与两级导出
 const CHAPTER_GROUP_SELECTORS = ['.firstLayer', '.posCatalog_title'] as const;
 
+// 编号节点：章与小节都用 .posCatalog_sbar，老结构里小节用 .posCatalog_num
+const CHAPTER_NUMBER_SELECTORS = ['.posCatalog_sbar', '.posCatalog_num', '.chapter-num'] as const;
+
 const ACTIVE_CLASSES = ['active', 'cur', 'current', 'on', 'selected', 'posCatalog_active'] as const;
+
+/** 「1.1」「2.3」这类编号前缀；必须是纯数字点号（避免把「3D 打印」当成编号） */
+const SECTION_NUMBER_PATTERN = /^([0-9]+(?:\.[0-9]+)*)(?:\s|$)/;
 
 /** Finds and activates course chapter entries without embedding extraction logic. */
 export class ChapterLocator {
   constructor(private readonly root: Document = document) {}
 
   list(): ChapterDescriptor[] {
-    return this.elements().map((element, index) => ({
-      index,
-      id: this.idOf(element, index),
-      title: this.titleOf(element, index),
-      active: this.isActive(element),
-    }));
+    return this.entries().map((entry, index) => {
+      const identity = this.identityOf(entry.element);
+      return {
+        index,
+        id: this.idOf(entry.element, index),
+        // 名字读不出时退回「第 N 章」，与改动前一致（面板上不能出现空标题）
+        title: identity.title || `第 ${index + 1} 章`,
+        label: identity.label,
+        active: this.isActive(entry.element),
+        group: entry.group,
+      };
+    });
   }
 
   activeIndex(): number | null {
@@ -63,6 +91,14 @@ export class ChapterLocator {
   }
 
   private elements(): HTMLElement[] {
+    return this.entries().map((entry) => entry.element);
+  }
+
+  /**
+   * 解析目录选择器：沿用「按优先级挑第一个命中数 > 1 的选择器」的既有判定，
+   * 保证「哪些节点算章节」与改动前完全一致。
+   */
+  private resolveSearch(): { root: ParentNode; selector: string } | null {
     const searchRoots: ParentNode[] = [this.root];
     for (const selector of CHAPTER_CONTAINER_SELECTORS) {
       const container = this.root.querySelector(selector);
@@ -73,10 +109,54 @@ export class ChapterLocator {
       for (const selector of CHAPTER_ITEM_SELECTORS) {
         const raw = [...searchRoot.querySelectorAll<HTMLElement>(selector)];
         const filtered = raw.filter((element) => this.isChapterItem(element));
-        if (filtered.length > 1) return this.removeNestedDuplicates(filtered);
+        if (filtered.length > 1) return { root: searchRoot, selector };
       }
     }
-    return [];
+    return null;
+  }
+
+  /**
+   * 按文档顺序走一遍目录：每个小节挂到它前面最近的那个「章」上。
+   *
+   * 只依赖文档顺序、不依赖具体层级，所以「章 → .posCatalog_level > 小节」的真实结构
+   * 与「分组标题和小节平铺成兄弟节点」的老结构都能正确归属。
+   */
+  private entries(): CatalogEntry[] {
+    const search = this.resolveSearch();
+    if (!search) return [];
+
+    const entries: CatalogEntry[] = [];
+    const scope: { current: ChapterGroupInfo | null } = { current: null };
+    // 命中即跳过整棵子树：分组标题内部不再识别下级分组，小节命中后也不再下钻
+    //（等价于原来的 removeNestedDuplicates 加「最内层选择器优先」）
+    const consumed = new Set<Element>();
+
+    for (const element of search.root.querySelectorAll<HTMLElement>('*')) {
+      if (this.isInsideConsumed(element, consumed)) continue;
+
+      if (this.isGroupElement(element)) {
+        scope.current = this.groupInfoOf(element);
+        consumed.add(element);
+        continue;
+      }
+      if (element.matches(search.selector) && this.isChapterItem(element)) {
+        entries.push({ element, group: scope.current });
+        consumed.add(element);
+      }
+    }
+    return entries;
+  }
+
+  private isInsideConsumed(element: HTMLElement, consumed: ReadonlySet<Element>): boolean {
+    if (consumed.size === 0) return false;
+    for (let node = element.parentElement; node; node = node.parentElement) {
+      if (consumed.has(node)) return true;
+    }
+    return false;
+  }
+
+  private isGroupElement(element: HTMLElement): boolean {
+    return CHAPTER_GROUP_SELECTORS.some((selector) => element.matches(selector));
   }
 
   /** 是否为可提取章节：排除分组标题与不可见占位项 */
@@ -88,7 +168,7 @@ export class ChapterLocator {
     if (isGroup) return false;
     if (!this.isVisible(element)) return false;
 
-    const title = this.titleOf(element, 0);
+    const title = this.identityOf(element).title;
     return title.length > 0 && !/^(?:目录|章节|返回)$/u.test(title);
   }
 
@@ -112,10 +192,53 @@ export class ChapterLocator {
     return element.querySelector<HTMLElement>('a, button, [role="button"]') ?? element;
   }
 
-  private removeNestedDuplicates(elements: readonly HTMLElement[]): HTMLElement[] {
-    return elements.filter((element) => {
-      return !elements.some((other) => other !== element && other.contains(element));
-    });
+  /** 章信息：编号读页面上的 em，名字优先 title 属性 */
+  private groupInfoOf(element: HTMLElement): ChapterGroupInfo {
+    const identity = this.identityOf(element);
+    return { id: this.idOf(element, 0), label: identity.label, title: identity.title };
+  }
+
+  /**
+   * 一次读出「编号 + 名字」。
+   *
+   * 名字优先取 title 属性（学习通把它写成不含编号的纯名字，也不带「已完成」这类提示文本），
+   * 没有 title 时才退回文本，并把文本里的编号（`em.posCatalog_sbar`）从名字里去掉 ——
+   * 编号单独存在 label 里、拼标题时再组合，避免出现「1.1 1.1 导论1」。
+   */
+  private identityOf(element: HTMLElement): { label: string; title: string } {
+    const fromNode = normalizeInlineWhitespace(this.numberNodeOf(element)?.textContent ?? '');
+
+    const explicit = normalizeInlineWhitespace(
+      element.getAttribute('title') ??
+        element.querySelector<HTMLElement>('[title]')?.getAttribute('title') ??
+        '',
+    );
+    if (explicit) return { label: fromNode || this.numberPrefixOf(explicit), title: explicit };
+
+    const named = element.querySelector<HTMLElement>(
+      '.catalog_name, .chapter-title, .posCatalog_name',
+    );
+    const raw = normalizeInlineWhitespace((named ?? element).textContent ?? '');
+    if (fromNode && raw.startsWith(fromNode)) {
+      return { label: fromNode, title: raw.slice(fromNode.length).trim() };
+    }
+    const prefix = this.numberPrefixOf(raw);
+    return prefix
+      ? { label: prefix, title: raw.slice(prefix.length).trim() }
+      : { label: '', title: raw };
+  }
+
+  private numberPrefixOf(text: string): string {
+    return SECTION_NUMBER_PATTERN.exec(text)?.[1] ?? '';
+  }
+
+  private numberNodeOf(element: HTMLElement): HTMLElement | null {
+    for (const selector of CHAPTER_NUMBER_SELECTORS) {
+      if (element.matches(selector)) return element;
+      const found = element.querySelector<HTMLElement>(selector);
+      if (found) return found;
+    }
+    return null;
   }
 
   private idOf(element: HTMLElement, index: number): string {
@@ -125,19 +248,6 @@ export class ChapterLocator {
       element.getAttribute('id') ??
       `chapter-${index + 1}`
     );
-  }
-
-  private titleOf(element: HTMLElement, index: number): string {
-    const explicit =
-      element.getAttribute('title') ??
-      element.querySelector<HTMLElement>('[title]')?.getAttribute('title') ??
-      element.querySelector<HTMLElement>('.catalog_name, .chapter-title, .posCatalog_name')
-        ?.innerText ??
-      element.innerText ??
-      // 兜底：章节名节点不带 title 时也要取到真实名称，避免退化成「第 N 章」
-      element.textContent;
-    const title = normalizeInlineWhitespace(explicit ?? '');
-    return title || `第 ${index + 1} 章`;
   }
 
   private isActive(element: HTMLElement): boolean {

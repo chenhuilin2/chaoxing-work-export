@@ -15,4 +15,6 @@ export interface ExportArtifact {
   readonly filename: string;
   readonly mimeType: string;
   readonly failedImages?: number;
+  /** 逐章文件打包成压缩包时，包里装了几个章节文件（用于下载提示） */
+  readonly archiveEntries?: number;
 }

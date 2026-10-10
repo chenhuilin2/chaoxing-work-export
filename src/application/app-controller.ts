@@ -203,8 +203,12 @@ export class AppController {
       this.addHistory(this.currentResult, options);
       // 下载状态提示与主脚本保持一致
       const warnMsg = failedImages > 0 ? `（${failedImages} 张图片加载失败）` : '';
+      // 逐章文件太多时导出的是压缩包：报「打包了几个章节文件」比「下载了 1 个文件」有用
+      const archived = artifacts[0]?.archiveEntries ?? 0;
       let message: string;
-      if (artifacts.length > 1) {
+      if (archived > 0) {
+        message = `章节较多，已把 ${archived} 个章节文件打包成 1 个 zip`;
+      } else if (artifacts.length > 1) {
         // 勾选「按章节拆分文件」时，各种格式都是一章一个文件
         message = `已下载 ${artifacts.length} 个章节文件`;
       } else if (options.format === 'word') {

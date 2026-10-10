@@ -159,3 +159,113 @@ test('章节遍历进度：显示「已提取 N/M 章节」并同步状态栏', 
 
   panel.destroy();
 });
+
+test('章节弹窗：两级目录按章分组，章行可整章勾选，状态报出覆盖章数', () => {
+  const { panel, shadow } = mountPanel();
+  const groupA = { id: 'g1', label: '1', title: '担当复兴大任 成就时代新人' };
+  const groupB = { id: 'g2', label: '2', title: '领悟人生真谛 把握人生方向' };
+  const chapters = [
+    { index: 0, id: 'c1', title: '如何认识新方位', label: '1.1', active: false, group: groupA },
+    { index: 1, id: 'c2', title: '如何认识新使命', label: '1.2', active: false, group: groupA },
+    {
+      index: 2,
+      id: 'c3',
+      title: '为什么要思考人生问题',
+      label: '2.1',
+      active: false,
+      group: groupB,
+    },
+  ];
+  panel.showChapterDialog(chapters);
+
+  const list = shadow.querySelector('[data-chapter-list]');
+  const status = shadow.querySelector('[data-chapter-status]');
+  assert.equal(status.textContent, '已选 3/3 小节 · 覆盖 2/2 章');
+  // 章行用页面上的章号拼标题，小节显示页面上的真编号
+  assert.deepEqual(
+    [...list.querySelectorAll('.cwe-chapter-group-head span')].map((node) => node.textContent),
+    ['第 1 章 担当复兴大任 成就时代新人', '第 2 章 领悟人生真谛 把握人生方向'],
+  );
+  assert.deepEqual(
+    [...list.querySelectorAll('.cwe-chapter span')].map((node) => node.textContent),
+    ['1.1 如何认识新方位', '1.2 如何认识新使命', '2.1 为什么要思考人生问题'],
+  );
+
+  // 取消第二章的整章勾选：该章小节全部取消，章行与状态同步
+  const groupToggles = [...list.querySelectorAll('input[data-chapter-group-toggle]')];
+  groupToggles[1].checked = false;
+  groupToggles[1].dispatchEvent(new Event('change', { bubbles: true }));
+  assert.equal(status.textContent, '已选 2/3 小节 · 覆盖 1/2 章');
+  assert.deepEqual(
+    [...list.querySelectorAll('input[data-chapter-index]')].map((input) => input.checked),
+    [true, true, false],
+  );
+  assert.equal(groupToggles[0].indeterminate, false);
+
+  // 只勾第一章里的一个小节 → 章行半选、全选框半选
+  list.querySelector('input[data-chapter-index]').checked = false;
+  list.dispatchEvent(new Event('change'));
+  assert.equal(groupToggles[0].indeterminate, true);
+  assert.equal(shadow.querySelector('[data-action="chapter-all-toggle"]').indeterminate, true);
+  assert.equal(status.textContent, '已选 1/3 小节 · 覆盖 1/2 章');
+
+  // 全选框勾上后，所有小节与所有章行都选中
+  const all = shadow.querySelector('[data-action="chapter-all-toggle"]');
+  all.checked = true;
+  all.dispatchEvent(new Event('change'));
+  assert.equal(status.textContent, '已选 3/3 小节 · 覆盖 2/2 章');
+  assert.deepEqual(
+    [...list.querySelectorAll('input[data-chapter-group-toggle]')].map((input) => input.checked),
+    [true, true],
+  );
+
+  // 提取进度里的小节名也带真编号
+  panel.updateChapterProgress({ completed: 1, total: 3, chapter: chapters[0], state: 'success' });
+  assert.equal(
+    shadow.querySelector('[data-chapter-progress]').textContent,
+    '已提取 1/3 章节 · 已完成：1.1 如何认识新方位',
+  );
+
+  panel.destroy();
+});
+
+test('章节弹窗：点「开始提取」后立即收起，一章都没选时保持打开', () => {
+  const { panel, shadow } = mountPanel();
+  const calls = [];
+  panel.setCallbacks({
+    onExtract: () => undefined,
+    onOpenChapters: () => undefined,
+    onExtractChapters: (indexes) => calls.push([...indexes]),
+    onDownload: () => undefined,
+    onCopy: () => undefined,
+    onDiagnose: () => undefined,
+    onPreferencesChange: () => undefined,
+    onSettingsSave: () => undefined,
+    onHistoryRestore: () => undefined,
+    onHistoryDownload: () => undefined,
+    onHistoryDelete: () => undefined,
+    onPanelPositionChange: () => undefined,
+  });
+
+  panel.showChapterDialog([chapter(0, '第一章'), chapter(1, '第二章')]);
+  const backdrop = shadow.querySelector('[data-modal="chapters"]');
+  const start = shadow.querySelector('[data-action="start-chapters"]');
+  assert.equal(backdrop.dataset.open, 'true');
+
+  // 确认之后弹窗立刻收起（几十章要提取很久，进度改由面板状态栏显示）
+  start.dispatchEvent(new Event('click'));
+  assert.deepEqual(calls, [[0, 1]]);
+  assert.equal(backdrop.dataset.open, 'false');
+
+  // 一章都没选：保持打开让用户就地补选，等待应用层提示
+  panel.showChapterDialog([chapter(0, '第一章'), chapter(1, '第二章')]);
+  const inputs = [...shadow.querySelectorAll('[data-chapter-list] input')];
+  inputs.forEach((input) => {
+    input.checked = false;
+  });
+  start.dispatchEvent(new Event('click'));
+  assert.deepEqual(calls, [[0, 1], []]);
+  assert.equal(backdrop.dataset.open, 'true');
+
+  panel.destroy();
+});

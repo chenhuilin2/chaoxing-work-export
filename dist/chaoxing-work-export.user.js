@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         超星学习通作业/考试一键提取导出 Word 文档
 // @namespace    https://github.com/chenhuilin2/chaoxing-work-export
-// @version      3.0.18
+// @version      3.0.21
 // @description  TypeScript 重构版：提取学习通作业与考试题目，支持富文本、答案解析、错题、章节批量提取及 Word/TXT/Markdown 导出
 // @author       huilin and contributors
 // @license      GPL-3.0-only
@@ -74,12 +74,105 @@
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.UI_HOST_ID = exports.APP_VERSION = exports.APP_NAME = void 0;
     exports.APP_NAME = 'Chaoxing Work Export';
-    exports.APP_VERSION = '3.0.18';
+    exports.APP_VERSION = '3.0.21';
     exports.UI_HOST_ID = 'chaoxing-work-export-root';
 });
 define("domain/export-options", ["require", "exports"], function (require, exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
+});
+define("utils/text", ["require", "exports"], function (require, exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.normalizeWhitespace = normalizeWhitespace;
+    exports.normalizeInlineWhitespace = normalizeInlineWhitespace;
+    exports.sanitizeFilename = sanitizeFilename;
+    exports.normalizeAnswer = normalizeAnswer;
+    exports.escapeMarkdownAlt = escapeMarkdownAlt;
+    exports.escapeMarkdownUrl = escapeMarkdownUrl;
+    exports.humanizeError = humanizeError;
+    function normalizeWhitespace(value) {
+        return value
+            .replace(/\u00a0/g, ' ')
+            .replace(/[\t\r\f ]+/g, ' ')
+            .replace(/ *\n */g, '\n')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+    }
+    function normalizeInlineWhitespace(value) {
+        return value.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+    function sanitizeFilename(value, fallback = '学习通题目') {
+        const sanitized = normalizeInlineWhitespace(value)
+            .replace(/[\\/:*?"<>|]/g, '_')
+            .replace(/[. ]+$/g, '')
+            .slice(0, 120);
+        return sanitized || fallback;
+    }
+    function normalizeAnswer(value) {
+        const normalized = normalizeInlineWhitespace(value)
+            .replace(/^(?:正确答案|参考答案|答案|我的答案|你的答案|学生答案)\s*[:：]?\s*/u, '')
+            .replace(/[，、;；\s]+/g, '')
+            .toUpperCase();
+        if (/^(?:正确|对|TRUE|T|√|✓)$/u.test(normalized))
+            return 'TRUE';
+        if (/^(?:错误|错|FALSE|F|×|✕|X)$/u.test(normalized))
+            return 'FALSE';
+        return normalized;
+    }
+    function escapeMarkdownAlt(value) {
+        return (value || '图片').replace(/[[\]\r\n]/g, ' ').trim() || '图片';
+    }
+    function escapeMarkdownUrl(value) {
+        return value.replace(/[()\\]/g, (character) => {
+            return `%${character.charCodeAt(0).toString(16).toUpperCase()}`;
+        });
+    }
+    function humanizeError(error) {
+        if (error instanceof Error && error.message)
+            return error.message;
+        return typeof error === 'string' ? error : '发生未知错误';
+    }
+});
+define("domain/chapter", ["require", "exports", "utils/text"], function (require, exports, text_1) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.sectionHeadingText = sectionHeadingText;
+    exports.groupHeadingText = groupHeadingText;
+    /** 「第一章」「第2章：」「第3讲」这类自带编号的名字：原样使用，避免叠成「第 1 章 第一章 …」 */
+    const CHAPTER_NUMBER_PATTERN = /^第\s*[0-9一二三四五六七八九十百千]+\s*[章节篇讲]/;
+    /** 「1.1」「2.3.1」这类小节编号（后面必须跟空白或结束，避免把「3D 打印」当成编号） */
+    const SECTION_NUMBER_PATTERN = /^[0-9]+(?:\.[0-9]+)*(?:\s|$)/;
+    /**
+     * 小节标题：「1.1 如何认识新方位」。
+     * 页面没给编号（老结构把编号写进了名字里，如 title="1.1 小节"）时退回名字本身，不叠加编号。
+     */
+    function sectionHeadingText(ref) {
+        const name = (0, text_1.normalizeInlineWhitespace)(ref.title);
+        const label = (0, text_1.normalizeInlineWhitespace)(ref.label ?? '');
+        if (!name)
+            return label;
+        if (!label || name.startsWith(label) || SECTION_NUMBER_PATTERN.test(name))
+            return name;
+        return `${label} ${name}`;
+    }
+    /**
+     * 章标题：「第 1 章 担当复兴大任 成就时代新人」。
+     *
+     * 章名自带「第一章」这类编号时原样使用；页面没给章号时用导出内的章序兜底
+     * （fallbackIndex 从 1 开始，传 0 表示「只要名字」）。
+     */
+    function groupHeadingText(group, fallbackIndex = 0) {
+        const name = (0, text_1.normalizeInlineWhitespace)(group.title);
+        if (!name)
+            return '';
+        if (CHAPTER_NUMBER_PATTERN.test(name))
+            return name;
+        const label = (0, text_1.normalizeInlineWhitespace)(group.label);
+        if (label)
+            return `第 ${label} 章 ${name}`;
+        return fallbackIndex > 0 ? `第 ${fallbackIndex} 章 ${name}` : name;
+    }
 });
 define("domain/question", ["require", "exports"], function (require, exports) {
     "use strict";
@@ -302,59 +395,6 @@ define("utils/array", ["require", "exports"], function (require, exports) {
 define("extractors/contracts", ["require", "exports"], function (require, exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-});
-define("utils/text", ["require", "exports"], function (require, exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.normalizeWhitespace = normalizeWhitespace;
-    exports.normalizeInlineWhitespace = normalizeInlineWhitespace;
-    exports.sanitizeFilename = sanitizeFilename;
-    exports.normalizeAnswer = normalizeAnswer;
-    exports.escapeMarkdownAlt = escapeMarkdownAlt;
-    exports.escapeMarkdownUrl = escapeMarkdownUrl;
-    exports.humanizeError = humanizeError;
-    function normalizeWhitespace(value) {
-        return value
-            .replace(/\u00a0/g, ' ')
-            .replace(/[\t\r\f ]+/g, ' ')
-            .replace(/ *\n */g, '\n')
-            .replace(/\n{3,}/g, '\n\n')
-            .trim();
-    }
-    function normalizeInlineWhitespace(value) {
-        return value.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
-    }
-    function sanitizeFilename(value, fallback = '学习通题目') {
-        const sanitized = normalizeInlineWhitespace(value)
-            .replace(/[\\/:*?"<>|]/g, '_')
-            .replace(/[. ]+$/g, '')
-            .slice(0, 120);
-        return sanitized || fallback;
-    }
-    function normalizeAnswer(value) {
-        const normalized = normalizeInlineWhitespace(value)
-            .replace(/^(?:正确答案|参考答案|答案|我的答案|你的答案|学生答案)\s*[:：]?\s*/u, '')
-            .replace(/[，、;；\s]+/g, '')
-            .toUpperCase();
-        if (/^(?:正确|对|TRUE|T|√|✓)$/u.test(normalized))
-            return 'TRUE';
-        if (/^(?:错误|错|FALSE|F|×|✕|X)$/u.test(normalized))
-            return 'FALSE';
-        return normalized;
-    }
-    function escapeMarkdownAlt(value) {
-        return (value || '图片').replace(/[[\]\r\n]/g, ' ').trim() || '图片';
-    }
-    function escapeMarkdownUrl(value) {
-        return value.replace(/[()\\]/g, (character) => {
-            return `%${character.charCodeAt(0).toString(16).toUpperCase()}`;
-        });
-    }
-    function humanizeError(error) {
-        if (error instanceof Error && error.message)
-            return error.message;
-        return typeof error === 'string' ? error : '发生未知错误';
-    }
 });
 define("extractors/cxsecret-table", ["require", "exports"], function (require, exports) {
     "use strict";
@@ -2584,7 +2624,7 @@ define("extractors/cxsecret-decoder", ["require", "exports", "extractors/cxsecre
         return decoder.decode(text);
     }
 });
-define("extractors/rich-content", ["require", "exports", "utils/text", "extractors/cxsecret-decoder"], function (require, exports, text_1, cxsecret_decoder_1) {
+define("extractors/rich-content", ["require", "exports", "utils/text", "extractors/cxsecret-decoder"], function (require, exports, text_2, cxsecret_decoder_1) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.normalizeRichContent = normalizeRichContent;
@@ -2807,7 +2847,7 @@ define("extractors/rich-content", ["require", "exports", "utils/text", "extracto
             else
                 output += '\n';
         }
-        return (0, text_1.normalizeWhitespace)(output);
+        return (0, text_2.normalizeWhitespace)(output);
     }
     function isRichContentEmpty(content) {
         return !content.some((part) => {
@@ -2886,7 +2926,7 @@ define("extractors/rich-content", ["require", "exports", "utils/text", "extracto
         return normalized ? [{ type: 'text', text: normalized }] : [];
     }
 });
-define("extractors/answer-comparison", ["require", "exports", "utils/text", "extractors/rich-content"], function (require, exports, text_2, rich_content_1) {
+define("extractors/answer-comparison", ["require", "exports", "utils/text", "extractors/rich-content"], function (require, exports, text_3, rich_content_1) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.compareAnswers = compareAnswers;
@@ -2894,8 +2934,8 @@ define("extractors/answer-comparison", ["require", "exports", "utils/text", "ext
     function compareAnswers(type, userAnswer, correctAnswer) {
         if (type === 'short-answer')
             return false;
-        const user = (0, text_2.normalizeAnswer)((0, rich_content_1.richContentToText)(userAnswer));
-        const correct = (0, text_2.normalizeAnswer)((0, rich_content_1.richContentToText)(correctAnswer));
+        const user = (0, text_3.normalizeAnswer)((0, rich_content_1.richContentToText)(userAnswer));
+        const correct = (0, text_3.normalizeAnswer)((0, rich_content_1.richContentToText)(correctAnswer));
         if (!user || !correct)
             return false;
         if (type === 'multiple-choice') {
@@ -2920,7 +2960,7 @@ define("extractors/answer-comparison", ["require", "exports", "utils/text", "ext
         ].join(',')));
     }
 });
-define("extractors/option-parser", ["require", "exports", "utils/text", "extractors/rich-content"], function (require, exports, text_3, rich_content_2) {
+define("extractors/option-parser", ["require", "exports", "utils/text", "extractors/rich-content"], function (require, exports, text_4, rich_content_2) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.FALLBACK_OPTION_SELECTORS = void 0;
@@ -2939,7 +2979,7 @@ define("extractors/option-parser", ["require", "exports", "utils/text", "extract
     function parseAnswerBackgroundOption(element, index) {
         const keyElement = element.querySelector('.num_option, .option-letter, .option-index');
         const contentElement = element.querySelector('.answer_p, .option-content, .option-text') ?? element;
-        const rawKey = (0, text_3.normalizeInlineWhitespace)(keyElement?.getAttribute('data') ??
+        const rawKey = (0, text_4.normalizeInlineWhitespace)(keyElement?.getAttribute('data') ??
             keyElement?.getAttribute('data-option') ??
             keyElement?.textContent ??
             String.fromCharCode(65 + index));
@@ -2993,7 +3033,7 @@ define("extractors/option-parser", ["require", "exports", "utils/text", "extract
             container.querySelector('.num_option, .option-letter, .mark_letter')?.textContent,
         ].find((value) => Boolean(value?.trim()));
         if (direct) {
-            const normalized = (0, text_3.normalizeInlineWhitespace)(direct).match(/[A-Z]/iu)?.[0];
+            const normalized = (0, text_4.normalizeInlineWhitespace)(direct).match(/[A-Z]/iu)?.[0];
             if (normalized)
                 return normalized.toUpperCase();
         }
@@ -3277,7 +3317,7 @@ define("extractors/question-stem", ["require", "exports", "utils/dom", "extracto
         return EMPTY_STEM;
     }
 });
-define("extractors/question-type", ["require", "exports", "utils/text"], function (require, exports, text_4) {
+define("extractors/question-type", ["require", "exports", "utils/text"], function (require, exports, text_5) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.detectQuestionType = detectQuestionType;
@@ -3300,7 +3340,7 @@ define("extractors/question-type", ["require", "exports", "utils/text"], functio
         ],
     ];
     function detectQuestionType(...values) {
-        const text = (0, text_4.normalizeInlineWhitespace)(values.filter(Boolean).join(' '));
+        const text = (0, text_5.normalizeInlineWhitespace)(values.filter(Boolean).join(' '));
         if (!text)
             return null;
         const numericType = LEGACY_NUMERIC_TYPES[text];
@@ -3323,7 +3363,7 @@ define("extractors/question-type", ["require", "exports", "utils/text"], functio
             return 'single-choice';
         if (container.querySelector('textarea, [contenteditable="true"]'))
             return 'short-answer';
-        const optionTexts = Array.from(container.querySelectorAll('.answerBg, .option, .Zy_ulTop li, .mark_letter li')).map((option) => (0, text_4.normalizeInlineWhitespace)(option.textContent ?? ''));
+        const optionTexts = Array.from(container.querySelectorAll('.answerBg, .option, .Zy_ulTop li, .mark_letter li')).map((option) => (0, text_5.normalizeInlineWhitespace)(option.textContent ?? ''));
         if (optionTexts.length === 2 &&
             optionTexts.every((value) => /(?:正确|错误|对|错|true|false|√|×)/iu.test(value))) {
             return 'true-false';
@@ -3442,7 +3482,7 @@ define("extractors/mark-item-extractor", ["require", "exports", "utils/dom", "ex
     }
     exports.MarkItemExtractor = MarkItemExtractor;
 });
-define("extractors/page-context", ["require", "exports", "utils/text"], function (require, exports, text_5) {
+define("extractors/page-context", ["require", "exports", "utils/text"], function (require, exports, text_6) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.resolvePrevTitle = resolvePrevTitle;
@@ -3473,10 +3513,10 @@ define("extractors/page-context", ["require", "exports", "utils/text"], function
             const element = root.querySelector(selector);
             if (!element)
                 continue;
-            const fromAttribute = (0, text_5.normalizeInlineWhitespace)(element.getAttribute('title') ?? '');
+            const fromAttribute = (0, text_6.normalizeInlineWhitespace)(element.getAttribute('title') ?? '');
             if (fromAttribute)
                 return fromAttribute;
-            const fromText = (0, text_5.normalizeInlineWhitespace)(element.textContent ?? '');
+            const fromText = (0, text_6.normalizeInlineWhitespace)(element.textContent ?? '');
             if (fromText)
                 return fromText;
         }
@@ -3488,11 +3528,11 @@ define("extractors/page-context", ["require", "exports", "utils/text"], function
         if (prevTitle)
             return prevTitle;
         for (const selector of TITLE_SELECTORS) {
-            const value = (0, text_5.normalizeInlineWhitespace)(root.querySelector(selector)?.textContent ?? '');
+            const value = (0, text_6.normalizeInlineWhitespace)(root.querySelector(selector)?.textContent ?? '');
             if (value)
                 return value;
         }
-        return (0, text_5.normalizeInlineWhitespace)(root.title)
+        return (0, text_6.normalizeInlineWhitespace)(root.title)
             .replace(/[-_|]\s*(?:超星学习通|学习通).*$/u, '')
             .trim() || '学习通题目';
     }
@@ -4222,130 +4262,277 @@ define("exporters/legacy-bridge", ["require", "exports"], function (require, exp
         };
     }
 });
-define("exporters/text-formatter", ["require", "exports", "exporters/legacy-bridge"], function (require, exports, legacy_bridge_1) {
+define("exporters/export-plan", ["require", "exports", "domain/chapter", "exporters/legacy-bridge"], function (require, exports, chapter_1, legacy_bridge_1) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    exports.formatOutput = formatOutput;
-    exports.formatAnswersTXT = formatAnswersTXT;
-    exports.formatOutputWithAnswers = formatOutputWithAnswers;
-    exports.formatWrongQuestionsTXT = formatWrongQuestionsTXT;
-    // ==================== TXT 格式化（富文本） ====================
-    function formatOutput(results, typeOrder) {
-        const typeLabels = {
-            单选: '单选题',
-            多选: '多选题',
-            填空: '填空题',
-            判断: '判断题',
-            简答: '简答题',
+    exports.READABLE_GAPS = exports.DEFAULT_GAPS = exports.CHAPTER_ARCHIVE_THRESHOLD = void 0;
+    exports.chapterHeadingText = chapterHeadingText;
+    exports.countChapters = countChapters;
+    exports.groupSections = groupSections;
+    exports.chapterBlocks = chapterBlocks;
+    exports.joinHeading = joinHeading;
+    exports.blankLines = blankLines;
+    exports.renderSectionGroups = renderSectionGroups;
+    exports.planExportDocuments = planExportDocuments;
+    /**
+     * 逐章导出的文件数阈值：超过它就不再逐个下载，改成一个压缩包。
+     *
+     * 章节练习动辄几十章，逐个下载既会触发浏览器的「多文件下载」拦截，也会把下载目录塞满；
+     * 少数几章时逐个下载反而更方便直接打开。注意现在按「章」拆，所以阈值比的是**章数**。
+     */
+    exports.CHAPTER_ARCHIVE_THRESHOLD = 5;
+    /** 去掉用户可能输入的扩展名，得到输出文件的基础名（与 TXT/MD 导出规则一致） */
+    function baseName(result, options) {
+        return (options.filename || result.title || '学习通题目').replace(/\.(txt|md|docx)$/, '');
+    }
+    /** 章节名可能含路径分隔符等文件名非法字符，替换后再落盘 */
+    function safeChapterTitle(title, index) {
+        return (title || `章节${index + 1}`).replace(/[\\/:*?"<>|]/g, '_');
+    }
+    /**
+     * 章名重名时补 `_2` / `_3` 后缀。
+     *
+     * 文件名不再带序号前缀，重名就会互相覆盖 —— 非法字符清洗（`1/2` → `1_2`）最容易撞车，
+     * 所以这里兜一层。正常目录（章名自带「第 N 章」编号）不会触发。
+     */
+    function uniqueChapterNames(names) {
+        const used = new Map();
+        return names.map((name) => {
+            const count = (used.get(name) ?? 0) + 1;
+            used.set(name, count);
+            return count === 1 ? name : `${name}_${count}`;
+        });
+    }
+    /** 章节名自带编号（「第一章」「第2章：」「第3讲」）的判定，用于避免重复编号 */
+    const CHAPTER_NUMBER_PATTERN = /^第\s*[0-9一二三四五六七八九十百千]+\s*[章节篇讲]/;
+    /**
+     * 没有章 / 小节信息时的标题（老数据、扁平目录）。
+     *
+     * 章节名常自带编号（「第一章 马克思主义」「第2章：马克思/恩格斯」），此时原样使用，
+     * 避免出现「第 1 章 第一章 马克思主义」这种叠字；没有编号时才补上「第 N 章」。
+     */
+    function chapterHeadingText(title, index) {
+        const name = (title || '').trim() || `章节${index + 1}`;
+        return CHAPTER_NUMBER_PATTERN.test(name) ? name : `第 ${index + 1} 章 ${name}`;
+    }
+    /** 同一份文档里含几个章（章标题只在 > 1 时打进正文） */
+    function countChapters(sections) {
+        const headings = new Set();
+        for (const section of sections) {
+            if (section.chapterHeading)
+                headings.add(section.chapterHeading);
+        }
+        return headings.size;
+    }
+    /**
+     * 把 sections 折成「章 → 小节」两级，并借机跳过没有内容的节（`pick` 返回 null）。
+     *
+     * 三种格式的正文 / 答案汇总 / 错题汇总都走这一个函数，所以「章标题只在多章时出现」
+     * 「没有错题的章连标题一起省掉」这类规则只有一处实现。
+     */
+    function groupSections(sections, pick) {
+        const multiChapter = countChapters(sections) > 1;
+        const groups = [];
+        sections.forEach((section, index) => {
+            const value = pick(section, index);
+            if (value === null)
+                return;
+            const heading = multiChapter ? section.chapterHeading : null;
+            const last = groups[groups.length - 1];
+            if (last && last.heading === heading) {
+                last.entries.push({ heading: section.heading, value });
+                return;
+            }
+            groups.push({ heading, entries: [{ heading: section.heading, value }] });
+        });
+        return groups;
+    }
+    /**
+     * 按章切分 sections：每章一个区块，区块内是该章按顺序排列的小节。
+     *
+     * 三种格式的「章内」渲染（题目 → 该章答案 → 该章错题）都以块为单位，
+     * 章标题为 null 表示这份文档只有一章（或目录只有一级）。
+     */
+    function chapterBlocks(sections) {
+        return groupSections(sections, (section) => section);
+    }
+    /** 把「标题 + 该节正文」拼成一段；该节没有正文时只留标题，不留多余空行 */
+    function joinHeading(heading, body) {
+        if (!heading)
+            return body;
+        return body ? `${heading}\n\n${body}` : heading;
+    }
+    /** n 个空行对应的换行串（段落之间空 n 行 = n + 1 个换行） */
+    function blankLines(count) {
+        return '\n'.repeat(count + 1);
+    }
+    /** 改动前的间距：章 / 小节标题上方各 1 个空行 */
+    exports.DEFAULT_GAPS = { chapter: 1, section: 1 };
+    /**
+     * 面向阅读的间距：章标题上方空 3 行、小节标题上方空 2 行。
+     *
+     * 多章节导出时层级本来就深（章 → 小节 → 题型），只空一行时分不出「换章」与「换小节」，
+     * 章之间多空一行、小节之间多空一行，滚动时一眼能看出自己在哪一级。
+     */
+    exports.READABLE_GAPS = { chapter: 3, section: 2 };
+    /**
+     * 章标题 → 小节标题 → 正文，逐级拼接；标题文本由各格式自己带上标记
+     * （TXT 是纯文本、Markdown 是 `##` / `###`），分段规则共用。
+     *
+     * 标题与其正文之间始终空 1 行（`joinHeading`）；`gaps` 只管**标题上方**的空行，
+     * 也就是「上一段正文」与「下一个标题」之间的留白。
+     */
+    function renderSectionGroups(groups, gaps = exports.DEFAULT_GAPS) {
+        return groups
+            .map((group) => {
+            const body = group.entries
+                .map((entry) => joinHeading(entry.heading, entry.value))
+                .join(blankLines(gaps.section));
+            return joinHeading(group.heading, body);
+        })
+            .join(blankLines(gaps.chapter));
+    }
+    /**
+     * 把章节数据摊成渲染用的 sections。
+     *
+     * 有章信息的两级目录：章标题用页面上的章号（「第 1 章 …」），小节标题用页面上的小节编号
+     * （「1.1 …」）；没有章信息时退回改动前的「第 N 章 名字」单级写法。
+     */
+    function buildSections(chapters, shuffle) {
+        const groupOrder = new Map();
+        return chapters.map((chapter, index) => {
+            const data = (0, legacy_bridge_1.toLegacyChapter)(chapter);
+            const results = shuffle ? (0, legacy_bridge_1.shuffleQuestions)(data.results, data.typeOrder) : data.results;
+            const group = chapter.group ?? null;
+            if (!group) {
+                // 扁平目录 / 老数据：这一节自成一段，标题沿用「第 N 章 名字」
+                return {
+                    chapterHeading: chapterHeadingText(data.title, index),
+                    heading: null,
+                    results,
+                    typeOrder: data.typeOrder,
+                };
+            }
+            let order = groupOrder.get(group.id);
+            if (order === undefined) {
+                order = groupOrder.size + 1;
+                groupOrder.set(group.id, order);
+            }
+            return {
+                chapterHeading: (0, chapter_1.groupHeadingText)(group, order) || null,
+                heading: (0, chapter_1.sectionHeadingText)(chapter) || null,
+                results,
+                typeOrder: data.typeOrder,
+            };
+        });
+    }
+    /** 按「章」把小节分组，保持首次出现的顺序（按章拆文件时一章一份） */
+    function groupChapters(chapters) {
+        const groups = [];
+        chapters.forEach((chapter, index) => {
+            const group = chapter.group ?? null;
+            const key = group ? group.id : `#${index}`;
+            const last = groups[groups.length - 1];
+            if (last && last.key === key) {
+                last.chapters.push(chapter);
+                return;
+            }
+            groups.push({ key, group, chapters: [chapter] });
+        });
+        return groups.map(({ group, chapters: items }) => ({ group, chapters: items }));
+    }
+    /**
+     * 规划本次导出要产出哪些文件：
+     * - 只有一章（或页面没有章节信息）→ 一个文件、正文不分节，与改动前逐字一致；
+     * - 勾选「按章节拆分文件」且多章节 → **一章一个文件**（文件内含该章的所有小节）；
+     *   章数超过阈值时另附一个压缩包计划；
+     * - 否则多章节单文件 → 正文按「章 → 小节 → 题型」分节，避免把各章节的同题型题目混在同一大题里。
+     *
+     * 题库导入（智能导入）格式不认章节标题，所以多章节时也不在单文件里插章节标题，
+     * 只按需要拆文件——拆出来的每个文件仍然只有一章的题目。
+     */
+    function planExportDocuments(result, options, ext) {
+        const base = baseName(result, options);
+        // 题库导入必带答案并禁用打乱，与 export-service 的既有规则保持一致
+        const shuffle = !options.bankImport && options.shuffle;
+        const chapters = result.chapters ?? [];
+        const legacy = (0, legacy_bridge_1.toLegacyResult)(result);
+        // 单章节（或没有章节信息）：一个文件、正文不分节
+        if (chapters.length <= 1) {
+            const section = {
+                chapterHeading: null,
+                heading: null,
+                results: shuffle ? (0, legacy_bridge_1.shuffleQuestions)(legacy.results, legacy.typeOrder) : legacy.results,
+                typeOrder: legacy.typeOrder,
+            };
+            return {
+                documents: [{ title: legacy.title, sections: [section], filename: `${base}${ext}` }],
+                archive: null,
+            };
+        }
+        // 按章节拆分：一章一个文件（章内的多个小节装在同一个文件里）
+        if (options.splitByChapter) {
+            const blocks = groupChapters(chapters).map((item, index) => {
+                const sections = buildSections(item.chapters, shuffle);
+                const first = sections[0];
+                // 文件大标题即章名：有章信息时用「第 N 章 …」，扁平目录仍用该节自己的名字
+                const title = (item.group ? first?.chapterHeading : null) ?? item.chapters[0]?.title ?? '';
+                return { title: title || `章节${index + 1}`, sections };
+            });
+            // 文件名直接用章名（「第 1 章 担当复兴大任 成就时代新人.txt」）：
+            // 课程名与序号前缀在解压后的文件夹里只会碍事，章名本身已经含编号、彼此不重名。
+            const names = uniqueChapterNames(blocks.map((block, index) => safeChapterTitle(block.title, index)));
+            const documents = blocks.map((block, index) => ({
+                title: block.title,
+                sections: block.sections,
+                filename: `${names[index]}${ext}`,
+            }));
+            return {
+                documents,
+                // 章太多：不再逐个下载，全部打进一个压缩包
+                archive: documents.length > exports.CHAPTER_ARCHIVE_THRESHOLD
+                    ? { filename: `${base}.zip`, documentCount: documents.length }
+                    : null,
+            };
+        }
+        // 多章节单文件：正文按章节分节
+        const sections = options.bankImport
+            ? [
+                {
+                    chapterHeading: null,
+                    heading: null,
+                    results: shuffle ? (0, legacy_bridge_1.shuffleQuestions)(legacy.results, legacy.typeOrder) : legacy.results,
+                    typeOrder: legacy.typeOrder,
+                },
+            ]
+            : buildSections(chapters, shuffle);
+        return {
+            documents: [{ title: legacy.title, sections, filename: `${base}${ext}` }],
+            archive: null,
         };
-        const typeNumbers = ['一', '二', '三', '四', '五', '六'];
-        let output = '';
-        let globalNum = 0;
-        let sectionIdx = 0;
-        for (const qtype of typeOrder) {
-            const questions = results[qtype];
-            if (!questions || questions.length === 0)
-                continue;
-            const label = typeLabels[qtype] ?? qtype;
-            const num = typeNumbers[sectionIdx] || sectionIdx + 1;
-            output += `${num}. ${label}（共${questions.length}题）\n`;
-            for (const q of questions) {
-                globalNum++;
-                output += `${globalNum}. ${(0, legacy_bridge_1.formatRichForText)((0, legacy_bridge_1.questionContent)(q))}\n`;
-                if (q.options && q.options.length > 0) {
-                    for (const opt of q.options) {
-                        output += `${opt.letter}. ${(0, legacy_bridge_1.formatRichForText)((0, legacy_bridge_1.optionContent)(opt))}\n`;
-                    }
-                }
-                output += '\n';
-            }
-            sectionIdx++;
-        }
-        return output.trim();
-    }
-    function formatAnswersTXT(results, typeOrder) {
-        const typeLabels = {
-            单选: '单选题',
-            多选: '多选题',
-            填空: '填空题',
-            判断: '判断题',
-            简答: '简答题',
-        };
-        const typeNumbers = ['一', '二', '三', '四', '五', '六'];
-        let output = '';
-        let globalNum = 0;
-        let sectionIdx = 0;
-        for (const qtype of typeOrder) {
-            const questions = results[qtype];
-            if (!questions || questions.length === 0)
-                continue;
-            const num = typeNumbers[sectionIdx] || sectionIdx + 1;
-            output += `${num}、${typeLabels[qtype] ?? qtype}\n\n`;
-            sectionIdx++;
-            for (const q of questions) {
-                globalNum++;
-                const answer = (0, legacy_bridge_1.formatRichForText)((0, legacy_bridge_1.answerContent)(q)) || '（未找到答案）';
-                if (qtype === '填空' && answer.includes('；')) {
-                    const parts = answer.split('；').map((p) => p.trim().replace(/^\(\d+\)\s*/, ''));
-                    output += `${globalNum}. \n`;
-                    parts.forEach((part, i) => {
-                        output += `(${i + 1}) ${part}\n`;
-                    });
-                    output += '\n';
-                }
-                else {
-                    output += `${globalNum}. ${answer}\n\n`;
-                }
-            }
-        }
-        return output.trim();
-    }
-    function formatOutputWithAnswers(results, typeOrder) {
-        let output = formatOutput(results, typeOrder);
-        output += '\n\n\n';
-        output += '========================================\n';
-        output += '              答案汇总\n';
-        output += '========================================\n\n';
-        output += formatAnswersTXT(results, typeOrder);
-        return output.trim();
-    }
-    function formatWrongQuestionsTXT(results, typeOrder) {
-        let output = '';
-        output += '\n\n\n';
-        output += '========================================\n';
-        output += '              错题汇总\n';
-        output += '========================================\n\n';
-        let globalNum = 0;
-        for (const qtype of typeOrder) {
-            const questions = results[qtype];
-            if (!questions || questions.length === 0)
-                continue;
-            if (qtype === '简答') {
-                globalNum += questions.length;
-                continue;
-            }
-            for (const q of questions) {
-                globalNum++;
-                if (!q.isWrong)
-                    continue;
-                const typeLabel = qtype === '填空' ? '填空题' : '题目';
-                output += `${globalNum}. (${typeLabel})${(0, legacy_bridge_1.formatRichForText)((0, legacy_bridge_1.questionContent)(q))}\n`;
-                output += `   我的答案: ${q.myAnswer || '无'}\n`;
-                output += `   正确答案: ${(0, legacy_bridge_1.formatRichForText)((0, legacy_bridge_1.answerContent)(q)) || '（未找到答案）'}\n\n`;
-            }
-        }
-        return output.replace(/\n+$/, '');
     }
 });
-define("exporters/markdown-formatter", ["require", "exports", "exporters/legacy-bridge"], function (require, exports, legacy_bridge_2) {
+define("exporters/markdown-formatter", ["require", "exports", "exporters/legacy-bridge", "exporters/export-plan"], function (require, exports, legacy_bridge_2, export_plan_1) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.formatOutputMD = formatOutputMD;
     exports.formatAnswersMD = formatAnswersMD;
     exports.formatOutputWithAnswersMD = formatOutputWithAnswersMD;
     exports.formatWrongQuestionsMD = formatWrongQuestionsMD;
+    exports.formatSectionsMD = formatSectionsMD;
+    exports.formatSectionsOutputMD = formatSectionsOutputMD;
+    // 标题级别：章占 ##、小节占 ###；题型在「本节有小节标题」时降到 ####，保持层级单调
+    const MD_LEVEL = {
+        chapter: 2,
+        section: 3,
+        type: 3,
+        typeUnderSection: 4,
+    };
     // ==================== Markdown 格式化（富文本） ====================
-    function formatOutputMD(results, typeOrder) {
+    /**
+     * @param typeLevel 题型大标题的级别（默认 3；正文里插了「### 1.1 小节名」时降到 4）
+     */
+    function formatOutputMD(results, typeOrder, typeLevel = MD_LEVEL.type) {
         const typeLabels = {
             单选: '单选题',
             多选: '多选题',
@@ -4354,6 +4541,7 @@ define("exporters/markdown-formatter", ["require", "exports", "exporters/legacy-
             简答: '简答题',
         };
         const typeNumbers = ['一', '二', '三', '四', '五', '六'];
+        const prefix = '#'.repeat(typeLevel);
         let output = '';
         let globalNum = 0;
         let sectionIdx = 0;
@@ -4363,7 +4551,7 @@ define("exporters/markdown-formatter", ["require", "exports", "exporters/legacy-
                 continue;
             const label = typeLabels[qtype] ?? qtype;
             const num = typeNumbers[sectionIdx] || sectionIdx + 1;
-            output += `### ${num}、${label}（共${questions.length}题）\n\n`;
+            output += `${prefix} ${num}、${label}（共${questions.length}题）\n\n`;
             for (const q of questions) {
                 globalNum++;
                 output += `**${globalNum}.** ${(0, legacy_bridge_2.formatRichForMD)((0, legacy_bridge_2.questionContent)(q))}\n\n`;
@@ -4422,9 +4610,13 @@ define("exporters/markdown-formatter", ["require", "exports", "exporters/legacy-
         output += formatAnswersMD(results, typeOrder);
         return output.trim();
     }
-    function formatWrongQuestionsMD(results, typeOrder) {
-        let output = '\n\n\n---\n\n';
-        output += '## 错题汇总\n\n';
+    /**
+     * 错题正文（不含「## 错题汇总」页头）。
+     *
+     * 题号以传入的结果集为范围从 1 数起，多章节分段与单章节页头拼接都复用它。
+     */
+    function wrongQuestionsBodyMD(results, typeOrder) {
+        let output = '';
         let globalNum = 0;
         for (const qtype of typeOrder) {
             const questions = results[qtype];
@@ -4443,69 +4635,333 @@ define("exporters/markdown-formatter", ["require", "exports", "exporters/legacy-
                 output += `- 正确答案: ${(0, legacy_bridge_2.formatRichForMD)((0, legacy_bridge_2.answerContent)(q)) || '（未找到答案）'}\n\n`;
             }
         }
+        return output;
+    }
+    function formatWrongQuestionsMD(results, typeOrder) {
+        let output = '\n\n\n---\n\n';
+        output += '## 错题汇总\n\n';
+        output += wrongQuestionsBodyMD(results, typeOrder);
         return output.replace(/\n+$/, '');
     }
-});
-define("exporters/word-plan", ["require", "exports", "exporters/legacy-bridge"], function (require, exports, legacy_bridge_3) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.planWordDocuments = planWordDocuments;
-    /** 去掉用户可能输入的扩展名，得到输出文件的基础名（与 TXT/MD 导出规则一致） */
-    function baseName(result, options) {
-        return (options.filename || result.title || '学习通题目').replace(/\.(txt|md|docx)$/, '');
-    }
-    /** 章节名可能含路径分隔符等文件名非法字符，替换后再落盘 */
-    function safeChapterTitle(title, index) {
-        return (title || `章节${index + 1}`).replace(/[\\/:*?"<>|]/g, '_');
-    }
-    function toSection(chapter, shuffle) {
-        return {
-            title: chapter.title,
-            results: shuffle ? (0, legacy_bridge_3.shuffleQuestions)(chapter.results, chapter.typeOrder) : chapter.results,
-            typeOrder: chapter.typeOrder,
-        };
+    // ==================== 多章节分段（Word 的章节分节在 Markdown 上的对应实现） ====================
+    //
+    // 每章渲染成一个区块：章标题 → 各小节题目 → **该章的答案汇总** → **该章的错题汇总**。
+    // 答案与错题此前集中在文件末尾，现在跟着章走，读完一章就能对答案。
+    //
+    // 单章节（含「按章节拆分」产出的单章文件）时章内即文件末尾，各分支退化成改动前的原函数，
+    // 输出与改动前逐字一致。
+    /**
+     * 给两级标题带上 Markdown 标记。
+     * 只有一级（老数据 / 扁平目录）时章标题仍是 `##`、小节标题为空，输出与改动前一致。
+     */
+    function decorateGroups(groups) {
+        return groups.map((group) => ({
+            heading: group.heading ? `${'#'.repeat(MD_LEVEL.chapter)} ${group.heading}` : null,
+            entries: group.entries.map((entry) => ({
+                heading: entry.heading ? `${'#'.repeat(MD_LEVEL.section)} ${entry.heading}` : null,
+                value: entry.value,
+            })),
+        }));
     }
     /**
-     * 规划本次 Word 导出要产出哪些文件：
-     * - 勾选「按章节拆分文件」且结果是多章节 → **一章一个 .docx**（与 TXT/Markdown 行为一致）；
-     * - 否则只产出一个 .docx：**多章节时正文按「章节 → 题型」分节**，单章节时与原先完全一致。
+     * 章内的答案 / 错题页头。
      *
-     * 题库导入（智能导入）格式不认章节标题，所以多章节时也不在单文件里插章节标题，
-     * 只按需要拆文件——拆出来的每个文件仍然只有一章的题目。
+     * 用 `##`（与章标题同级）而不是原来的 `#`：汇总页现在夹在章与章之间，若仍是 `#`，
+     * 后面的章标题就会在大纲里挂到「答案汇总」底下；同级时各章才是干净的兄弟节点。
+     * `---` 分隔线与单章时的输出保持一致。
      */
-    function planWordDocuments(result, options) {
-        const base = baseName(result, options);
-        // 题库导入必带答案并禁用打乱，与 export-service 的既有规则保持一致
-        const shuffle = !options.bankImport && options.shuffle;
-        const chapters = result.chapters ?? [];
-        // 分章节下载：每个章节单独一个文件
-        if (options.splitByChapter && chapters.length > 1) {
-            return chapters.map((chapter, index) => {
-                const data = (0, legacy_bridge_3.toLegacyChapter)(chapter);
-                const title = safeChapterTitle(data.title, index);
-                return {
-                    title: data.title || title,
-                    sections: [toSection(data, shuffle)],
-                    filename: `${base}_${index + 1}_${title}.docx`,
-                };
-            });
+    function summaryHeading(text) {
+        return `${(0, export_plan_1.blankLines)(1)}---${(0, export_plan_1.blankLines)(1)}${'#'.repeat(MD_LEVEL.chapter)} ${text}${(0, export_plan_1.blankLines)(1)}`;
+    }
+    /**
+     * 章内的答案 / 错题区：逐小节一个小标题，题号按小节从 1 重排，便于回正文对照。
+     * `skipEmpty` 为真时把没有内容的行整条去掉（错题区用，一道错题都没有的小节连标题一起省）。
+     */
+    function chapterSummary(group, render, skipEmpty) {
+        const entries = group.entries
+            .map((entry) => ({ heading: entry.heading, value: render(entry.value) }))
+            .filter((entry) => !skipEmpty || entry.value.trim().length > 0);
+        return (0, export_plan_1.renderSectionGroups)(decorateGroups([{ heading: null, entries }]), export_plan_1.READABLE_GAPS);
+    }
+    /** 章标题 → 各小节题目（题型头在有小节标题时降到 ####，保持层级单调） */
+    function chapterBodyMD(group) {
+        return (0, export_plan_1.renderSectionGroups)(decorateGroups([
+            {
+                heading: group.heading,
+                entries: group.entries.map((entry) => ({
+                    heading: entry.heading,
+                    value: formatOutputMD(entry.value.results, entry.value.typeOrder, entry.heading ? MD_LEVEL.typeUnderSection : MD_LEVEL.type),
+                })),
+            },
+        ]), export_plan_1.READABLE_GAPS);
+    }
+    /** 一章的完整内容：题目 → 答案 → 错题 */
+    function formatChapterMD(group, options) {
+        let output = chapterBodyMD(group);
+        if (options.withAnswers) {
+            output += summaryHeading('答案汇总');
+            output += chapterSummary(group, (section) => formatAnswersMD(section.results, section.typeOrder), false);
         }
-        const legacy = (0, legacy_bridge_3.toLegacyResult)(result);
-        // 多章节单文件：正文按章节分节，避免把各章节的同题型题目混在同一大题里
-        const groupedByChapter = chapters.length > 1 && !options.bankImport;
-        const sections = groupedByChapter
-            ? chapters.map((chapter) => toSection((0, legacy_bridge_3.toLegacyChapter)(chapter), shuffle))
-            : [
-                {
-                    title: legacy.title,
-                    results: shuffle ? (0, legacy_bridge_3.shuffleQuestions)(legacy.results, legacy.typeOrder) : legacy.results,
-                    typeOrder: legacy.typeOrder,
-                },
-            ];
-        return [{ title: legacy.title, sections, filename: `${base}.docx` }];
+        if (options.withWrong) {
+            const wrong = chapterSummary(group, (section) => wrongQuestionsBodyMD(section.results, section.typeOrder).replace(/\n+$/, ''), true);
+            // 一道错题都没有的章连页头一起省掉
+            if (wrong)
+                output += summaryHeading('错题汇总') + wrong;
+        }
+        return output;
+    }
+    /**
+     * 正文：多章节时插「## 第 N 章 章名」+「### 1.1 小节名」两级标题。
+     *
+     * 只有「单章**且**这一节没有小节标题」时才走原 formatter（扁平目录 / 老数据，输出与改动前逐字一致）；
+     * 带小节标题的单节文件（例如只含「1.3 本章测试」的章）仍走章块渲染，标题不能丢。
+     */
+    function formatSectionsMD(sections) {
+        const only = sections[0];
+        if (sections.length <= 1 && !only?.heading) {
+            return only ? formatOutputMD(only.results, only.typeOrder) : '';
+        }
+        return (0, export_plan_1.chapterBlocks)(sections)
+            .map((group) => chapterBodyMD(group))
+            .join((0, export_plan_1.blankLines)(export_plan_1.READABLE_GAPS.chapter));
+    }
+    /**
+     * 完整输出：逐章「题目 → 答案 → 错题」。
+     *
+     * 单章节时答案与错题本来就在题目之后，各分支退化成改动前的原函数，输出逐字不变。
+     */
+    function formatSectionsOutputMD(sections, options) {
+        const only = sections[0];
+        if (sections.length <= 1 && !only?.heading) {
+            if (!only)
+                return '';
+            let output = options.withAnswers
+                ? formatOutputWithAnswersMD(only.results, only.typeOrder)
+                : formatOutputMD(only.results, only.typeOrder);
+            if (options.withWrong)
+                output += formatWrongQuestionsMD(only.results, only.typeOrder);
+            return output;
+        }
+        return (0, export_plan_1.chapterBlocks)(sections)
+            .map((group) => formatChapterMD(group, options))
+            .join((0, export_plan_1.blankLines)(export_plan_1.READABLE_GAPS.chapter));
     }
 });
-define("exporters/word-exporter", ["require", "exports", "exporters/legacy-bridge"], function (require, exports, legacy_bridge_4) {
+define("exporters/text-formatter", ["require", "exports", "exporters/legacy-bridge", "exporters/export-plan"], function (require, exports, legacy_bridge_3, export_plan_2) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.formatOutput = formatOutput;
+    exports.formatAnswersTXT = formatAnswersTXT;
+    exports.formatOutputWithAnswers = formatOutputWithAnswers;
+    exports.formatWrongQuestionsTXT = formatWrongQuestionsTXT;
+    exports.formatSectionsText = formatSectionsText;
+    exports.formatSectionsOutput = formatSectionsOutput;
+    // ==================== TXT 格式化（富文本） ====================
+    function formatOutput(results, typeOrder) {
+        const typeLabels = {
+            单选: '单选题',
+            多选: '多选题',
+            填空: '填空题',
+            判断: '判断题',
+            简答: '简答题',
+        };
+        const typeNumbers = ['一', '二', '三', '四', '五', '六'];
+        let output = '';
+        let globalNum = 0;
+        let sectionIdx = 0;
+        for (const qtype of typeOrder) {
+            const questions = results[qtype];
+            if (!questions || questions.length === 0)
+                continue;
+            const label = typeLabels[qtype] ?? qtype;
+            const num = typeNumbers[sectionIdx] || sectionIdx + 1;
+            output += `${num}. ${label}（共${questions.length}题）\n`;
+            for (const q of questions) {
+                globalNum++;
+                output += `${globalNum}. ${(0, legacy_bridge_3.formatRichForText)((0, legacy_bridge_3.questionContent)(q))}\n`;
+                if (q.options && q.options.length > 0) {
+                    for (const opt of q.options) {
+                        output += `${opt.letter}. ${(0, legacy_bridge_3.formatRichForText)((0, legacy_bridge_3.optionContent)(opt))}\n`;
+                    }
+                }
+                output += '\n';
+            }
+            sectionIdx++;
+        }
+        return output.trim();
+    }
+    function formatAnswersTXT(results, typeOrder) {
+        const typeLabels = {
+            单选: '单选题',
+            多选: '多选题',
+            填空: '填空题',
+            判断: '判断题',
+            简答: '简答题',
+        };
+        const typeNumbers = ['一', '二', '三', '四', '五', '六'];
+        let output = '';
+        let globalNum = 0;
+        let sectionIdx = 0;
+        for (const qtype of typeOrder) {
+            const questions = results[qtype];
+            if (!questions || questions.length === 0)
+                continue;
+            const num = typeNumbers[sectionIdx] || sectionIdx + 1;
+            output += `${num}、${typeLabels[qtype] ?? qtype}\n\n`;
+            sectionIdx++;
+            for (const q of questions) {
+                globalNum++;
+                const answer = (0, legacy_bridge_3.formatRichForText)((0, legacy_bridge_3.answerContent)(q)) || '（未找到答案）';
+                if (qtype === '填空' && answer.includes('；')) {
+                    const parts = answer.split('；').map((p) => p.trim().replace(/^\(\d+\)\s*/, ''));
+                    output += `${globalNum}. \n`;
+                    parts.forEach((part, i) => {
+                        output += `(${i + 1}) ${part}\n`;
+                    });
+                    output += '\n';
+                }
+                else {
+                    output += `${globalNum}. ${answer}\n\n`;
+                }
+            }
+        }
+        return output.trim();
+    }
+    function formatOutputWithAnswers(results, typeOrder) {
+        let output = formatOutput(results, typeOrder);
+        output += '\n\n\n';
+        output += '========================================\n';
+        output += '              答案汇总\n';
+        output += '========================================\n\n';
+        output += formatAnswersTXT(results, typeOrder);
+        return output.trim();
+    }
+    /**
+     * 错题正文（不含「错题汇总」页头）。
+     *
+     * 题号以传入的结果集为范围从 1 数起，因此按章传入即得该章的错题题号 —— 多章节分段与
+     * 单章节页头拼接都复用它，避免两处各写一遍编号。
+     */
+    function wrongQuestionsBodyTXT(results, typeOrder) {
+        let output = '';
+        let globalNum = 0;
+        for (const qtype of typeOrder) {
+            const questions = results[qtype];
+            if (!questions || questions.length === 0)
+                continue;
+            if (qtype === '简答') {
+                globalNum += questions.length;
+                continue;
+            }
+            for (const q of questions) {
+                globalNum++;
+                if (!q.isWrong)
+                    continue;
+                const typeLabel = qtype === '填空' ? '填空题' : '题目';
+                output += `${globalNum}. (${typeLabel})${(0, legacy_bridge_3.formatRichForText)((0, legacy_bridge_3.questionContent)(q))}\n`;
+                output += `   我的答案: ${q.myAnswer || '无'}\n`;
+                output += `   正确答案: ${(0, legacy_bridge_3.formatRichForText)((0, legacy_bridge_3.answerContent)(q)) || '（未找到答案）'}\n\n`;
+            }
+        }
+        return output;
+    }
+    function formatWrongQuestionsTXT(results, typeOrder) {
+        let output = '';
+        output += '\n\n\n';
+        output += '========================================\n';
+        output += '              错题汇总\n';
+        output += '========================================\n\n';
+        output += wrongQuestionsBodyTXT(results, typeOrder);
+        return output.replace(/\n+$/, '');
+    }
+    // ==================== 多章节分段（Word 的章节分节在 TXT 上的对应实现） ====================
+    //
+    // 每章渲染成一个区块：章标题 → 各小节题目 → **该章的答案汇总** → **该章的错题汇总**。
+    // 答案与错题此前堆在文件末尾，做完一章的题要翻到最后才能对；现在读完一章就能对，
+    // 且答案编号天然与该小节的题号一一对应。
+    //
+    // 单章节（含「按章节拆分」产出的单章文件）时章内即文件末尾，各分支退化成改动前的原函数，
+    // 输出与改动前逐字一致。
+    /** 章内的「答案汇总 / 错题汇总」页头 —— 与原来文件末尾的汇总页同一样式 */
+    function summaryBanner(text) {
+        const line = '='.repeat(40);
+        return `${(0, export_plan_2.blankLines)(2)}${line}\n${' '.repeat(14)}${text}\n${line}${(0, export_plan_2.blankLines)(1)}`;
+    }
+    /**
+     * 章内的答案 / 错题区：逐小节一个小标题，题号按小节从 1 重排，便于回正文对照。
+     * `skipEmpty` 为真时把没有内容的行整条去掉（错题区用，一道错题都没有的小节连标题一起省）。
+     */
+    function chapterSummary(group, render, skipEmpty) {
+        const entries = group.entries
+            .map((entry) => ({ heading: entry.heading, value: render(entry.value) }))
+            .filter((entry) => !skipEmpty || entry.value.trim().length > 0);
+        return (0, export_plan_2.renderSectionGroups)([{ heading: null, entries }], export_plan_2.READABLE_GAPS);
+    }
+    /** 章标题 → 各小节题目（题号与题型序号在各小节内从 1 / 一 重新数起） */
+    function chapterBodyText(group) {
+        return (0, export_plan_2.renderSectionGroups)([
+            {
+                heading: group.heading,
+                entries: group.entries.map((entry) => ({
+                    heading: entry.heading,
+                    value: formatOutput(entry.value.results, entry.value.typeOrder),
+                })),
+            },
+        ], export_plan_2.READABLE_GAPS);
+    }
+    /** 一章的完整内容：题目 → 答案 → 错题 */
+    function formatChapterText(group, options) {
+        let output = chapterBodyText(group);
+        if (options.withAnswers) {
+            output += summaryBanner('答案汇总');
+            output += chapterSummary(group, (section) => formatAnswersTXT(section.results, section.typeOrder), false);
+        }
+        if (options.withWrong) {
+            const wrong = chapterSummary(group, (section) => wrongQuestionsBodyTXT(section.results, section.typeOrder).replace(/\n+$/, ''), true);
+            // 一道错题都没有的章连页头一起省掉
+            if (wrong)
+                output += summaryBanner('错题汇总') + wrong;
+        }
+        return output;
+    }
+    /**
+     * 正文：多章节时插「第 N 章 章名」+「1.1 小节名」两级标题。
+     *
+     * 只有「单章**且**这一节没有小节标题」时才走原 formatter（扁平目录 / 老数据，输出与改动前逐字一致）；
+     * 带小节标题的单节文件（例如只含「1.3 本章测试」的章）仍走章块渲染，标题不能丢。
+     */
+    function formatSectionsText(sections) {
+        const only = sections[0];
+        if (sections.length <= 1 && !only?.heading) {
+            return only ? formatOutput(only.results, only.typeOrder) : '';
+        }
+        return (0, export_plan_2.chapterBlocks)(sections)
+            .map((group) => chapterBodyText(group))
+            .join((0, export_plan_2.blankLines)(export_plan_2.READABLE_GAPS.chapter));
+    }
+    /**
+     * 完整输出：逐章「题目 → 答案 → 错题」。
+     *
+     * 单章节时答案与错题本来就在题目之后，各分支退化成改动前的原函数，输出逐字不变。
+     */
+    function formatSectionsOutput(sections, options) {
+        const only = sections[0];
+        if (sections.length <= 1 && !only?.heading) {
+            if (!only)
+                return '';
+            let output = options.withAnswers
+                ? formatOutputWithAnswers(only.results, only.typeOrder)
+                : formatOutput(only.results, only.typeOrder);
+            if (options.withWrong)
+                output += formatWrongQuestionsTXT(only.results, only.typeOrder);
+            return output;
+        }
+        return (0, export_plan_2.chapterBlocks)(sections)
+            .map((group) => formatChapterText(group, options))
+            .join((0, export_plan_2.blankLines)(export_plan_2.READABLE_GAPS.chapter));
+    }
+});
+define("exporters/word-exporter", ["require", "exports", "exporters/legacy-bridge", "exporters/export-plan"], function (require, exports, legacy_bridge_4, export_plan_3) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.WORD_MIME = void 0;
@@ -4634,7 +5090,9 @@ define("exporters/word-exporter", ["require", "exports", "exporters/legacy-bridg
             .trim();
     }
     const FONT = 'Microsoft YaHei';
-    // 题型大题头字号（半磅）：比章节标题小一号（章节标题 28 = 14pt → 题型 24 = 12pt），与正文 22 拉开层次
+    // 字号层级（半磅）：文档标题 32 > 章标题（正文大标题）28 > 小节标题 26 > 题型大题头 24 > 正文 22。
+    // 小节标题比章标题小一号，题型头再小一号，四层在页面上能一眼分出来。
+    const SIZE_SECTION_HEADING = 26;
     const SIZE_TYPE_HEADER = 24;
     const COLOR = {
         title: '1F2937',
@@ -4703,7 +5161,7 @@ define("exporters/word-exporter", ["require", "exports", "exporters/legacy-bridg
             },
         ];
     }
-    /** 试卷正文的章节大标题：多章节单文件时用来分节（除首章外先分页） */
+    /** 试卷正文的章标题：多章单文件时用来分节（除首章外先分页） */
     function chapterHeadingParagraph(text, pageBreak) {
         const { Paragraph, TextRun, AlignmentType, HeadingLevel, PageBreak } = docx;
         const parts = [];
@@ -4717,12 +5175,33 @@ define("exporters/word-exporter", ["require", "exports", "exporters/legacy-bridg
         }));
         return parts;
     }
-    /** 答案页 / 错题页里的章节小标题（不强制分页，与上级大标题区分） */
+    /** 正文里的小节标题（「1.1 如何认识新方位」）：比章标题小一号，不分页 */
+    function sectionHeadingParagraph(text) {
+        const { Paragraph, TextRun, HeadingLevel } = docx;
+        return new Paragraph({
+            children: [
+                new TextRun({ text, font: FONT, size: SIZE_SECTION_HEADING, bold: true, color: COLOR.title }),
+            ],
+            heading: HeadingLevel.HEADING_3,
+            spacing: { before: 200, after: 120 },
+        });
+    }
+    /** 答案页 / 错题页里的章标题（不强制分页，比正文大标题小一号） */
     function chapterLabelParagraph(text) {
         const { Paragraph, TextRun } = docx;
         return new Paragraph({
             children: [new TextRun({ text, font: FONT, size: 26, bold: true, color: COLOR.title })],
             spacing: { before: 200, after: 120 },
+        });
+    }
+    /** 答案页 / 错题页里的小节标题：作定位标签用，灰蓝色与紧随其后的题型头区分开 */
+    function sectionLabelParagraph(text) {
+        const { Paragraph, TextRun } = docx;
+        return new Paragraph({
+            children: [
+                new TextRun({ text, font: FONT, size: SIZE_TYPE_HEADER, bold: true, color: COLOR.type }),
+            ],
+            spacing: { before: 160, after: 100 },
         });
     }
     /** 题库导入格式：生成学习通智能导入兼容的 Word 文档 */
@@ -4826,57 +5305,69 @@ define("exporters/word-exporter", ["require", "exports", "exporters/legacy-bridg
         return await Packer.toBlob(doc);
     }
     /**
-     * 试卷正文：标题 + 统计摘要 + 各章节题目（按题型分组）。
+     * 章的题目部分：可选的大标题 + 统计摘要 + 章标题 + 各小节题目（按小节 → 题型分组）。
      *
      * title 是文档大标题（多章节时是「课程 - N 个章节」这类聚合标题），
-     * 与 section.title（章节名，多章节时作为正文里的分节标题）不是一回事。
+     * 与两级标题里的章标题不是一回事。
      */
-    async function buildPaperBody(title, sections) {
-        const { Paragraph, TextRun, AlignmentType, HeadingLevel } = docx;
+    async function buildPaperBody(sections, layout) {
+        const { Paragraph, TextRun, AlignmentType, HeadingLevel, PageBreak } = docx;
         const children = [];
-        const multiSection = sections.length > 1;
-        // 标题
-        children.push(new Paragraph({
-            children: [
-                new TextRun({ text: title || '试卷', font: FONT, size: 32, bold: true, color: '2563EB' }),
-            ],
-            heading: HeadingLevel.HEADING_1,
-            alignment: AlignmentType.CENTER,
-            spacing: { before: 200, after: 120 },
-        }));
-        // 统计摘要（多章节时跨章节汇总）
-        let totalQ = 0;
-        const typeCount = {};
-        for (const section of sections) {
-            for (const qtype of section.typeOrder) {
-                const questions = section.results[qtype];
-                if (!questions || questions.length === 0)
-                    continue;
-                typeCount[qtype] = (typeCount[qtype] ?? 0) + questions.length;
-                totalQ += questions.length;
-            }
+        if (layout.pageBreakBefore) {
+            children.push(new Paragraph({ children: [new PageBreak()], spacing: { after: 0 } }));
         }
-        const summary = Object.entries(typeCount)
-            .map(([type, count]) => `${type} ${count} 道`)
-            .join(' / ');
-        children.push(new Paragraph({
-            children: [
-                new TextRun({ text: `共 ${totalQ} 道题`, font: FONT, size: 20, color: COLOR.muted }),
-                ...(summary
-                    ? [new TextRun({ text: ` · ${summary}`, font: FONT, size: 20, color: COLOR.muted })]
-                    : []),
-            ],
-            alignment: AlignmentType.CENTER,
-            spacing: { before: 60, after: 260 },
-        }));
-        for (let sectionIndex = 0; sectionIndex < sections.length; sectionIndex += 1) {
-            const section = sections[sectionIndex];
-            if (!section)
-                continue;
-            // 多章节单文件：每章前插章节大标题
-            if (multiSection)
-                children.push(...chapterHeadingParagraph(section.title, sectionIndex > 0));
-            // 题号与题型序号都按章重新开始：每章从第 1 题、从「一、」数起
+        if (layout.title !== null) {
+            // 标题
+            children.push(new Paragraph({
+                children: [
+                    new TextRun({
+                        text: layout.title || '试卷',
+                        font: FONT,
+                        size: 32,
+                        bold: true,
+                        color: '2563EB',
+                    }),
+                ],
+                heading: HeadingLevel.HEADING_1,
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 200, after: 120 },
+            }));
+            // 统计摘要（多章节时跨章节汇总）
+            let totalQ = 0;
+            const typeCount = {};
+            for (const section of layout.statsSections) {
+                for (const qtype of section.typeOrder) {
+                    const questions = section.results[qtype];
+                    if (!questions || questions.length === 0)
+                        continue;
+                    typeCount[qtype] = (typeCount[qtype] ?? 0) + questions.length;
+                    totalQ += questions.length;
+                }
+            }
+            const summary = Object.entries(typeCount)
+                .map(([type, count]) => `${type} ${count} 道`)
+                .join(' / ');
+            children.push(new Paragraph({
+                children: [
+                    new TextRun({ text: `共 ${totalQ} 道题`, font: FONT, size: 20, color: COLOR.muted }),
+                    ...(summary
+                        ? [new TextRun({ text: ` · ${summary}`, font: FONT, size: 20, color: COLOR.muted })]
+                        : []),
+                ],
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 60, after: 260 },
+            }));
+        }
+        // 章标题（只在同一份文档含多个章时出现，单章时文件大标题已写明章名）；
+        // 分页只在换章时发生，逐小节课时小节之间不换页
+        if (layout.chapterHeading)
+            children.push(...chapterHeadingParagraph(layout.chapterHeading, false));
+        // 章 → 小节：章标题已单独插入，这里只负责各小节
+        for (const section of sections) {
+            // 小节标题（「1.1 如何认识新方位」）；扁平目录 / 老数据没有这一级
+            if (section.heading)
+                children.push(sectionHeadingParagraph(section.heading));
+            // 题号与题型序号都按小节重新开始：每节从第 1 题、从「一、」数起
             const typeHeaders = buildTypeHeaders(section);
             let qNum = 0;
             for (const qtype of section.typeOrder) {
@@ -4998,10 +5489,14 @@ define("exporters/word-exporter", ["require", "exports", "exporters/legacy-bridg
         }
         return children;
     }
-    /** 答案页：分页后按章节、按题型列出正确答案 */
-    async function appendAnswerPage(children, sections) {
+    /**
+     * 答案页：分页后按小节、按题型列出正确答案。
+     *
+     * `chapterLabel` 供多章拆段时使用：每段只拿到一章的 sections，`groupSections` 推断不出
+     * 「这份文档还有别的章」，章标题得由调用方递进来；单文件时传 null，行为与改动前一致。
+     */
+    async function appendAnswerPage(children, sections, chapterLabel = null) {
         const { Paragraph, TextRun, AlignmentType, HeadingLevel, PageBreak } = docx;
-        const multiSection = sections.length > 1;
         children.push(new Paragraph({
             children: [new PageBreak()],
             spacing: { after: 0 },
@@ -5020,73 +5515,81 @@ define("exporters/word-exporter", ["require", "exports", "exporters/legacy-bridg
             alignment: AlignmentType.CENTER,
             spacing: { before: 200, after: 240 },
         }));
-        for (const section of sections) {
-            if (multiSection)
-                children.push(chapterLabelParagraph(section.title));
-            // 答案编号与题目页一致：按章重新从 1 数起，题型序号同样按本章重排
-            const typeHeaders = buildTypeHeaders(section);
-            let aNum = 0;
-            for (const qtype of section.typeOrder) {
-                const questions = section.results[qtype];
-                if (!questions || questions.length === 0)
-                    continue;
-                const header = typeHeaders.get(qtype) ?? TYPE_NAMES[qtype] ?? qtype;
-                children.push(new Paragraph({
-                    children: [
-                        new TextRun({
-                            text: header,
-                            font: FONT,
-                            size: SIZE_TYPE_HEADER,
-                            bold: true,
-                            color: COLOR.title,
-                        }),
-                    ],
-                    spacing: { after: 120 },
-                }));
-                for (const q of questions) {
-                    aNum++;
-                    // 清洗答案文本，去除“正确答案:/我的答案:”等标签组合
-                    const answerContentArr = (0, legacy_bridge_4.answerContent)(q);
-                    const cleanedContent = answerContentArr.map((part) => {
-                        if (part.type === 'text') {
-                            return { ...part, text: cleanAnswerText(part.text) };
-                        }
-                        return part;
-                    });
-                    const answerRuns = await buildRichRuns(cleanedContent);
-                    if (answerRuns.length === 0) {
-                        answerRuns.push(new TextRun({ text: '（未找到答案）', font: FONT, size: 22, color: COLOR.muted }));
-                    }
-                    else {
-                        // 将答案文本改为绿色加粗
-                        answerRuns.forEach((run) => {
-                            if (run.font)
-                                run.font = FONT;
-                            run.size = 22;
-                            run.bold = true;
-                            run.color = COLOR.answer;
-                        });
-                    }
+        const groups = (0, export_plan_3.groupSections)(sections, (section) => section);
+        for (const group of groups) {
+            // 章标题只在多章时出现（多章拆段时由调用方递进来）；小节标题作定位标签，
+            // 答案编号与题目页一致地按小节重启
+            const label = group.heading ?? chapterLabel;
+            if (label)
+                children.push(chapterLabelParagraph(label));
+            for (const entry of group.entries) {
+                const section = entry.value;
+                if (entry.heading)
+                    children.push(sectionLabelParagraph(entry.heading));
+                // 答案编号与题目页一致：按小节重新从 1 数起，题型序号同样按本节重排
+                const typeHeaders = buildTypeHeaders(section);
+                let aNum = 0;
+                for (const qtype of section.typeOrder) {
+                    const questions = section.results[qtype];
+                    if (!questions || questions.length === 0)
+                        continue;
+                    const header = typeHeaders.get(qtype) ?? TYPE_NAMES[qtype] ?? qtype;
                     children.push(new Paragraph({
                         children: [
-                            new TextRun({ text: `${aNum}. `, font: FONT, size: 22, color: COLOR.title }),
-                            ...answerRuns,
+                            new TextRun({
+                                text: header,
+                                font: FONT,
+                                size: SIZE_TYPE_HEADER,
+                                bold: true,
+                                color: COLOR.title,
+                            }),
                         ],
-                        spacing: { before: 90, after: 70 },
-                        indent: { left: 420 },
+                        spacing: { after: 120 },
                     }));
-                    // 简答题答案常有多行，之间空一行便于区分
-                    if (qtype === '简答') {
-                        children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
+                    for (const q of questions) {
+                        aNum++;
+                        // 清洗答案文本，去除“正确答案:/我的答案:”等标签组合
+                        const answerContentArr = (0, legacy_bridge_4.answerContent)(q);
+                        const cleanedContent = answerContentArr.map((part) => {
+                            if (part.type === 'text') {
+                                return { ...part, text: cleanAnswerText(part.text) };
+                            }
+                            return part;
+                        });
+                        const answerRuns = await buildRichRuns(cleanedContent);
+                        if (answerRuns.length === 0) {
+                            answerRuns.push(new TextRun({ text: '（未找到答案）', font: FONT, size: 22, color: COLOR.muted }));
+                        }
+                        else {
+                            // 将答案文本改为绿色加粗
+                            answerRuns.forEach((run) => {
+                                if (run.font)
+                                    run.font = FONT;
+                                run.size = 22;
+                                run.bold = true;
+                                run.color = COLOR.answer;
+                            });
+                        }
+                        children.push(new Paragraph({
+                            children: [
+                                new TextRun({ text: `${aNum}. `, font: FONT, size: 22, color: COLOR.title }),
+                                ...answerRuns,
+                            ],
+                            spacing: { before: 90, after: 70 },
+                            indent: { left: 420 },
+                        }));
+                        // 简答题答案常有多行，之间空一行便于区分
+                        if (qtype === '简答') {
+                            children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
+                        }
                     }
                 }
             }
         }
     }
-    /** 错题汇总页：分页后列出答错的题目、我的答案与正确答案 */
-    async function appendWrongPage(children, sections) {
+    /** 错题页：分页后按小节列出答错的题目、我的答案与正确答案（`chapterLabel` 同答案页） */
+    async function appendWrongPage(children, sections, chapterLabel = null) {
         const { Paragraph, TextRun, AlignmentType, HeadingLevel, PageBreak } = docx;
-        const multiSection = sections.length > 1;
         const hasAnyWrong = sections.some((section) => section.typeOrder.some((qtype) => (section.results[qtype] ?? []).some((question) => question.isWrong)));
         if (!hasAnyWrong)
             return;
@@ -5108,121 +5611,123 @@ define("exporters/word-exporter", ["require", "exports", "exporters/legacy-bridg
             alignment: AlignmentType.CENTER,
             spacing: { before: 200, after: 240 },
         }));
-        for (const section of sections) {
-            if (multiSection) {
-                // 该章一道错题都没有时，连章节标题一起省掉（与「无错题的题型不出现」一致）
-                const sectionHasWrong = section.typeOrder.some((qtype) => (section.results[qtype] ?? []).some((question) => question.isWrong));
-                const before = children.length;
-                if (sectionHasWrong)
-                    children.push(chapterLabelParagraph(section.title));
-                // 章节标题先占位，若无错题则回滚（保持既有「空section不出标题」的写法简单）
-                if (!sectionHasWrong && children.length !== before)
-                    children.length = before;
-            }
-            // 错题题号要能对上题目页，因此同样按章重新从 1 数起
-            const typeHeaders = buildTypeHeaders(section);
-            let globalNum = 0;
-            for (const qtype of section.typeOrder) {
-                const questions = section.results[qtype];
-                if (!questions || questions.length === 0)
-                    continue;
-                if (qtype === '简答') {
-                    globalNum += questions.length;
-                    continue;
-                }
-                const header = typeHeaders.get(qtype) ?? TYPE_NAMES[qtype] ?? qtype;
-                let sectionHasWrong = false;
-                for (const q of questions) {
-                    if (q.isWrong) {
-                        sectionHasWrong = true;
-                        break;
-                    }
-                }
-                if (!sectionHasWrong) {
-                    globalNum += questions.length;
-                    continue;
-                }
-                children.push(new Paragraph({
-                    children: [
-                        new TextRun({
-                            text: header,
-                            font: FONT,
-                            size: SIZE_TYPE_HEADER,
-                            bold: true,
-                            color: COLOR.title,
-                        }),
-                    ],
-                    spacing: { after: 120 },
-                }));
-                for (const q of questions) {
-                    globalNum++;
-                    if (!q.isWrong)
+        // 一道错题都没有的小节（乃至整章）连标题一起省掉（与「无错题的题型不出现」一致），
+        // 过滤交给 groupSections，省掉原来「先占位再回滚」的写法。
+        const hasWrong = (section) => section.typeOrder.some((qtype) => (section.results[qtype] ?? []).some((question) => question.isWrong));
+        const groups = (0, export_plan_3.groupSections)(sections, (section) => (hasWrong(section) ? section : null));
+        for (const group of groups) {
+            const label = group.heading ?? chapterLabel;
+            if (label)
+                children.push(chapterLabelParagraph(label));
+            for (const entry of group.entries) {
+                const section = entry.value;
+                if (entry.heading)
+                    children.push(sectionLabelParagraph(entry.heading));
+                // 错题题号要能对上题目页，因此同样按小节重新从 1 数起
+                const typeHeaders = buildTypeHeaders(section);
+                let globalNum = 0;
+                for (const qtype of section.typeOrder) {
+                    const questions = section.results[qtype];
+                    if (!questions || questions.length === 0)
                         continue;
-                    children.push(new Paragraph({
-                        children: await buildRichRuns((0, legacy_bridge_4.questionContent)(q), `${globalNum}. `),
-                        spacing: { before: 160, after: 40 },
-                    }));
-                    const options = q.options || [];
-                    if (options.length > 0) {
-                        for (const opt of options) {
-                            children.push(new Paragraph({
-                                children: await buildRichRuns((0, legacy_bridge_4.optionContent)(opt), `${opt.letter}. `),
-                                indent: { left: 620, hanging: 220 },
-                                spacing: { before: 30, after: 30 },
-                            }));
+                    if (qtype === '简答') {
+                        globalNum += questions.length;
+                        continue;
+                    }
+                    const header = typeHeaders.get(qtype) ?? TYPE_NAMES[qtype] ?? qtype;
+                    let sectionHasWrong = false;
+                    for (const q of questions) {
+                        if (q.isWrong) {
+                            sectionHasWrong = true;
+                            break;
                         }
+                    }
+                    if (!sectionHasWrong) {
+                        globalNum += questions.length;
+                        continue;
                     }
                     children.push(new Paragraph({
                         children: [
                             new TextRun({
-                                text: `我的答案: ${q.myAnswer || '无'}`,
+                                text: header,
                                 font: FONT,
-                                size: 22,
-                                color: COLOR.wrong,
-                            }),
-                        ],
-                        spacing: { before: 60, after: 40 },
-                        indent: { left: 420 },
-                    }));
-                    const answerContentArr = (0, legacy_bridge_4.answerContent)(q);
-                    const cleanedContent = answerContentArr.map((part) => {
-                        if (part.type === 'text') {
-                            return { ...part, text: cleanAnswerText(part.text) };
-                        }
-                        return part;
-                    });
-                    const correctRuns = await buildRichRuns(cleanedContent);
-                    if (correctRuns.length === 0) {
-                        correctRuns.push(new TextRun({ text: '（未找到答案）', font: FONT, size: 22, color: COLOR.muted }));
-                    }
-                    else {
-                        correctRuns.forEach((run) => {
-                            if (run.font)
-                                run.font = FONT;
-                            run.size = 22;
-                            run.bold = true;
-                            run.color = COLOR.answer;
-                        });
-                    }
-                    children.push(new Paragraph({
-                        children: [
-                            new TextRun({
-                                text: '正确答案：',
-                                font: FONT,
-                                size: 22,
+                                size: SIZE_TYPE_HEADER,
                                 bold: true,
-                                color: COLOR.answer,
+                                color: COLOR.title,
                             }),
-                            ...correctRuns,
                         ],
-                        spacing: { before: 40, after: 120 },
-                        indent: { left: 420 },
+                        spacing: { after: 120 },
                     }));
-                    // 每道题之间空一行
+                    for (const q of questions) {
+                        globalNum++;
+                        if (!q.isWrong)
+                            continue;
+                        children.push(new Paragraph({
+                            children: await buildRichRuns((0, legacy_bridge_4.questionContent)(q), `${globalNum}. `),
+                            spacing: { before: 160, after: 40 },
+                        }));
+                        const options = q.options || [];
+                        if (options.length > 0) {
+                            for (const opt of options) {
+                                children.push(new Paragraph({
+                                    children: await buildRichRuns((0, legacy_bridge_4.optionContent)(opt), `${opt.letter}. `),
+                                    indent: { left: 620, hanging: 220 },
+                                    spacing: { before: 30, after: 30 },
+                                }));
+                            }
+                        }
+                        children.push(new Paragraph({
+                            children: [
+                                new TextRun({
+                                    text: `我的答案: ${q.myAnswer || '无'}`,
+                                    font: FONT,
+                                    size: 22,
+                                    color: COLOR.wrong,
+                                }),
+                            ],
+                            spacing: { before: 60, after: 40 },
+                            indent: { left: 420 },
+                        }));
+                        const answerContentArr = (0, legacy_bridge_4.answerContent)(q);
+                        const cleanedContent = answerContentArr.map((part) => {
+                            if (part.type === 'text') {
+                                return { ...part, text: cleanAnswerText(part.text) };
+                            }
+                            return part;
+                        });
+                        const correctRuns = await buildRichRuns(cleanedContent);
+                        if (correctRuns.length === 0) {
+                            correctRuns.push(new TextRun({ text: '（未找到答案）', font: FONT, size: 22, color: COLOR.muted }));
+                        }
+                        else {
+                            correctRuns.forEach((run) => {
+                                if (run.font)
+                                    run.font = FONT;
+                                run.size = 22;
+                                run.bold = true;
+                                run.color = COLOR.answer;
+                            });
+                        }
+                        children.push(new Paragraph({
+                            children: [
+                                new TextRun({
+                                    text: '正确答案：',
+                                    font: FONT,
+                                    size: 22,
+                                    bold: true,
+                                    color: COLOR.answer,
+                                }),
+                                ...correctRuns,
+                            ],
+                            spacing: { before: 40, after: 120 },
+                            indent: { left: 420 },
+                        }));
+                        // 每道题之间空一行
+                        children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
+                    }
+                    // 每个类别之间空一行
                     children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
                 }
-                // 每个类别之间空一行
-                children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
             }
         }
     }
@@ -5231,11 +5736,42 @@ define("exporters/word-exporter", ["require", "exports", "exporters/legacy-bridg
         if (options.bankImport) {
             return await buildBankImportBlob(title, sections);
         }
-        const children = await buildPaperBody(title, sections);
-        if (options.withAnswers)
-            await appendAnswerPage(children, sections);
-        if (options.withWrong)
-            await appendWrongPage(children, sections);
+        const children = [];
+        if (sections.length <= 1) {
+            // 单章（含「按章节拆分」产出的单章文件）：答案与错题本来就在题目之后，保持改动前的结构
+            children.push(...(await buildPaperBody(sections, {
+                title,
+                statsSections: sections,
+                pageBreakBefore: false,
+                chapterHeading: null,
+            })));
+            if (options.withAnswers)
+                await appendAnswerPage(children, sections);
+            if (options.withWrong)
+                await appendWrongPage(children, sections);
+        }
+        else {
+            // 多章单文件：逐章「题目 → 答案页 → 错题页」，读完一章就能对答案，不必翻到文件末尾
+            const blocks = (0, export_plan_3.chapterBlocks)(sections);
+            for (let index = 0; index < blocks.length; index += 1) {
+                const block = blocks[index];
+                if (!block)
+                    continue;
+                const chapterSections = block.entries.map((entry) => entry.value);
+                children.push(...(await buildPaperBody(chapterSections, {
+                    // 大标题与统计只在文档开头出现一次
+                    title: index === 0 ? title : null,
+                    statsSections: sections,
+                    // 换章才分页
+                    pageBreakBefore: index > 0,
+                    chapterHeading: block.heading,
+                })));
+                if (options.withAnswers)
+                    await appendAnswerPage(children, chapterSections, block.heading);
+                if (options.withWrong)
+                    await appendWrongPage(children, chapterSections, block.heading);
+            }
+        }
         const doc = new Document({
             styles: {
                 paragraphStyles: [
@@ -5267,140 +5803,246 @@ define("exporters/word-exporter", ["require", "exports", "exporters/legacy-bridg
         return await Packer.toBlob(doc);
     }
 });
-define("exporters/export-service", ["require", "exports", "exporters/legacy-bridge", "exporters/text-formatter", "exporters/markdown-formatter", "exporters/word-exporter", "exporters/word-plan"], function (require, exports, legacy_bridge_5, text_formatter_1, markdown_formatter_1, word_exporter_1, word_plan_1) {
+// 内置 ZIP 打包器：只做「存储」（不压缩），不引入任何外部依赖。
+//
+// 用途：按章节拆分的文件超过阈值时，把所有章节文件装进一个压缩包 —— 浏览器没法在一次下载里
+// 直接建目录，压缩包解压后就是「一个装着所有章节文件的文件夹」。
+//
+// 两个必须小心的细节：
+// 1. 章节名是中文，条目名要按 UTF-8 写入并置位通用标志位 11（语言编码标志），
+//    否则 Windows 自带解压会按本地代码页解码成乱码；
+// 2. ZIP 的所有多字节字段都是小端，CRC-32 用的是反射多项式 0xEDB88320。
+define("exporters/zip-archive", ["require", "exports"], function (require, exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.createZipBlob = createZipBlob;
+    /** CRC-32 查表（构造时生成一次） */
+    const CRC_TABLE = (() => {
+        const table = new Uint32Array(256);
+        for (let index = 0; index < 256; index += 1) {
+            let value = index;
+            for (let bit = 0; bit < 8; bit += 1) {
+                value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+            }
+            table[index] = value >>> 0;
+        }
+        return table;
+    })();
+    function crc32(data) {
+        let crc = 0xffffffff;
+        for (let index = 0; index < data.length; index += 1) {
+            crc = (CRC_TABLE[(crc ^ (data[index] ?? 0)) & 0xff] ?? 0) ^ (crc >>> 8);
+        }
+        return (crc ^ 0xffffffff) >>> 0;
+    }
+    /** 小端字节写入器 */
+    class ByteWriter {
+        constructor() {
+            this.chunks = [];
+            this.size = 0;
+        }
+        u16(value) {
+            const bytes = new Uint8Array(2);
+            new DataView(bytes.buffer).setUint16(0, value & 0xffff, true);
+            this.chunks.push(bytes);
+            this.size += 2;
+        }
+        u32(value) {
+            const bytes = new Uint8Array(4);
+            new DataView(bytes.buffer).setUint32(0, value >>> 0, true);
+            this.chunks.push(bytes);
+            this.size += 4;
+        }
+        raw(bytes) {
+            this.chunks.push(bytes);
+            this.size += bytes.length;
+        }
+        /** 已写入的字节数（中央目录里记录各条目的偏移要用） */
+        get length() {
+            return this.size;
+        }
+        get parts() {
+            return this.chunks;
+        }
+    }
+    /** ZIP 头里的时间戳是 MS-DOS 格式（1980 年起算，秒只有 2 秒精度） */
+    function dosTimestamp(date) {
+        const time = ((date.getHours() << 11) | (date.getMinutes() << 5) | (date.getSeconds() >> 1)) & 0xffff;
+        const day = (((date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate()) & 0xffff;
+        return { time, date: day };
+    }
+    /** 通用标志位 11：条目名按 UTF-8 编码 */
+    const UTF8_FLAG = 0x0800;
+    /** 单个条目 4GB 上限（不做 ZIP64，章节文件不可能到这个量级） */
+    const ZIP64_LIMIT = 0xffffffff;
+    /** 外部属性里的「目录」位 */
+    const DIRECTORY_ATTRIBUTE = 0x10;
+    /**
+     * 打成 ZIP。
+     *
+     * 条目名原样写入，所以调用方可以传「文件夹/章节文件.txt」这样的相对路径，
+     * 解压后自然落进一个同名文件夹。
+     */
+    function createZipBlob(entries, now = new Date()) {
+        const encoder = new TextEncoder();
+        const stamp = dosTimestamp(now);
+        const local = new ByteWriter();
+        const central = new ByteWriter();
+        let offset = 0;
+        for (const entry of entries) {
+            const name = encoder.encode(entry.name);
+            const size = entry.data.length;
+            if (size > ZIP64_LIMIT) {
+                throw new Error(`ZIP 打包失败：条目「${entry.name}」超过 4GB`);
+            }
+            const crc = crc32(entry.data);
+            // 本地文件头
+            local.u32(0x04034b50);
+            local.u16(20);
+            local.u16(UTF8_FLAG);
+            local.u16(0); // 存储方式：0 = 不压缩
+            local.u16(stamp.time);
+            local.u16(stamp.date);
+            local.u32(crc);
+            local.u32(size);
+            local.u32(size);
+            local.u16(name.length);
+            local.u16(0); // 无扩展字段
+            local.raw(name);
+            local.raw(entry.data);
+            // 中央目录项
+            central.u32(0x02014b50);
+            central.u16(20); // 创建版本
+            central.u16(20); // 解压所需版本
+            central.u16(UTF8_FLAG);
+            central.u16(0);
+            central.u16(stamp.time);
+            central.u16(stamp.date);
+            central.u32(crc);
+            central.u32(size);
+            central.u32(size);
+            central.u16(name.length);
+            central.u16(0); // 无扩展字段
+            central.u16(0); // 无注释
+            central.u16(0); // 起始磁盘号
+            central.u16(0); // 内部属性
+            central.u32(entry.name.endsWith('/') ? DIRECTORY_ATTRIBUTE : 0);
+            central.u32(offset);
+            central.raw(name);
+            offset += 30 + name.length + size;
+        }
+        // 中央目录结束记录
+        const end = new ByteWriter();
+        end.u32(0x06054b50);
+        end.u16(0); // 本磁盘号
+        end.u16(0); // 中央目录所在磁盘号
+        end.u16(entries.length);
+        end.u16(entries.length);
+        end.u32(central.length);
+        end.u32(local.length);
+        end.u16(0); // 无注释
+        return new Blob([...local.parts, ...central.parts, ...end.parts], { type: 'application/zip' });
+    }
+});
+define("exporters/export-service", ["require", "exports", "exporters/export-plan", "exporters/markdown-formatter", "exporters/text-formatter", "exporters/word-exporter", "exporters/zip-archive"], function (require, exports, export_plan_4, markdown_formatter_1, text_formatter_1, word_exporter_1, zip_archive_1) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.ExportService = void 0;
-    // 原版 getOutputText：根据选项生成输出文本
-    // （打乱时题目和答案用打乱顺序重新生成，错题汇总始终用原始顺序）
-    function getOutputText(legacy, options) {
-        const fmt = options.format;
-        const withAnswers = options.withAnswers;
-        const withWrong = options.withWrong;
-        const doShuffle = options.shuffle;
-        let base = '';
-        if (doShuffle) {
-            const shuffled = (0, legacy_bridge_5.shuffleQuestions)(legacy.results, legacy.typeOrder);
-            if (fmt === 'md') {
-                base = withAnswers
-                    ? (0, markdown_formatter_1.formatOutputWithAnswersMD)(shuffled, legacy.typeOrder)
-                    : (0, markdown_formatter_1.formatOutputMD)(shuffled, legacy.typeOrder);
-            }
-            else {
-                base = withAnswers
-                    ? (0, text_formatter_1.formatOutputWithAnswers)(shuffled, legacy.typeOrder)
-                    : (0, text_formatter_1.formatOutput)(shuffled, legacy.typeOrder);
-            }
+    const EXTENSIONS = {
+        word: '.docx',
+        txt: '.txt',
+        md: '.md',
+    };
+    const TEXT_MIME = {
+        txt: 'text/plain;charset=utf-8',
+        md: 'text/markdown;charset=utf-8',
+    };
+    const ARCHIVE_MIME = 'application/zip';
+    /**
+     * 把逐章文件打成一个压缩包。
+     *
+     * 包内先放一个与压缩包同名的目录条目，章节文件都挂在这个目录下 ——
+     * 用户解压后拿到的是「一个装着所有章节文件的文件夹」，而不是几十个散文件。
+     */
+    async function bundleArchive(artifacts, archiveFilename) {
+        const folder = archiveFilename.replace(/\.zip$/i, '') || '章节文件';
+        const entries = [{ name: `${folder}/`, data: new Uint8Array(0) }];
+        for (const artifact of artifacts) {
+            entries.push({
+                name: `${folder}/${artifact.filename}`,
+                data: new Uint8Array(await artifact.blob.arrayBuffer()),
+            });
         }
-        else {
-            if (fmt === 'md') {
-                base = withAnswers
-                    ? (0, markdown_formatter_1.formatOutputWithAnswersMD)(legacy.results, legacy.typeOrder)
-                    : (0, markdown_formatter_1.formatOutputMD)(legacy.results, legacy.typeOrder);
-            }
-            else {
-                base = withAnswers
-                    ? (0, text_formatter_1.formatOutputWithAnswers)(legacy.results, legacy.typeOrder)
-                    : (0, text_formatter_1.formatOutput)(legacy.results, legacy.typeOrder);
-            }
-        }
-        if (withWrong) {
-            const wrong = fmt === 'md'
-                ? (0, markdown_formatter_1.formatWrongQuestionsMD)(legacy.results, legacy.typeOrder)
-                : (0, text_formatter_1.formatWrongQuestionsTXT)(legacy.results, legacy.typeOrder);
-            return base + wrong;
-        }
-        return base;
-    }
-    // 原版 getChapterText：为单个章节生成输出文本（用于分章节下载）
-    function getChapterText(chapter, options) {
-        const results = chapter.results || {};
-        const typeOrder = chapter.typeOrder || [];
-        const withAnswers = options.withAnswers;
-        const withWrong = options.withWrong;
-        const doShuffle = options.shuffle;
-        const activeResults = doShuffle ? (0, legacy_bridge_5.shuffleQuestions)(results, typeOrder) : results;
-        if (options.format === 'md') {
-            if (withWrong)
-                return (0, markdown_formatter_1.formatWrongQuestionsMD)(activeResults, typeOrder);
-            if (withAnswers)
-                return (0, markdown_formatter_1.formatOutputWithAnswersMD)(activeResults, typeOrder);
-            return (0, markdown_formatter_1.formatOutputMD)(activeResults, typeOrder);
-        }
-        if (withWrong)
-            return (0, text_formatter_1.formatWrongQuestionsTXT)(activeResults, typeOrder);
-        if (withAnswers)
-            return (0, text_formatter_1.formatOutputWithAnswers)(activeResults, typeOrder);
-        return (0, text_formatter_1.formatOutput)(activeResults, typeOrder);
+        return {
+            blob: (0, zip_archive_1.createZipBlob)(entries),
+            filename: archiveFilename,
+            mimeType: ARCHIVE_MIME,
+            // 图片计数取各文件的合计（Word 逐章生成时是全局累加的）
+            failedImages: artifacts.reduce((total, artifact) => total + (artifact.failedImages ?? 0), 0),
+            archiveEntries: artifacts.length,
+        };
     }
     class ExportService {
         async createArtifacts(sourceResult, options) {
-            const legacy = (0, legacy_bridge_5.toLegacyResult)(sourceResult);
-            // 原版规则：文件名输入去掉扩展名后作为基础名
-            const baseFilename = (options.filename || legacy.title || '学习通题目').replace(/\.(txt|md|docx)$/, '');
-            // Word 导出（原版规则：题库导入必带答案并禁用打乱/错题）
-            // 文件划分交给 word-plan：勾选「按章节拆分文件」时一章一个 .docx；
-            // 否则只产出一个文件，多章节时正文按「章节 → 题型」分节，不再把各章同题型混在一起。
-            if (options.format === 'word') {
-                const isBankImport = options.bankImport;
-                const withWrong = !isBankImport && options.withWrong;
-                const plans = (0, word_plan_1.planWordDocuments)(sourceResult, options);
-                const artifacts = [];
-                window.__xxt_failed_image_count = 0;
-                for (const plan of plans) {
-                    const failedBefore = window.__xxt_failed_image_count || 0;
-                    const blob = await (0, word_exporter_1.generateWordBlob)(plan.title, plan.sections, {
-                        withAnswers: isBankImport || options.withAnswers,
-                        withWrong,
-                        bankImport: isBankImport,
-                    });
-                    artifacts.push({
-                        blob,
-                        filename: plan.filename,
-                        mimeType: word_exporter_1.WORD_MIME,
-                        // 图片计数是全局累加的，这里取本文件的增量
-                        failedImages: (window.__xxt_failed_image_count || 0) - failedBefore,
-                    });
-                }
-                return artifacts;
-            }
-            // TXT / MD 导出
-            const ext = options.format === 'md' ? '.md' : '.txt';
-            const mime = options.format === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8';
-            // 分章节下载：每个章节单独一个文件
-            if (options.splitByChapter && sourceResult.chapters && sourceResult.chapters.length > 1) {
-                const artifacts = [];
-                for (let i = 0; i < sourceResult.chapters.length; i++) {
-                    const chapter = sourceResult.chapters[i];
-                    if (!chapter)
-                        continue;
-                    const chapterData = (0, legacy_bridge_5.toLegacyChapter)(chapter);
-                    // 生成单章文本
-                    const chText = getChapterText(chapterData, options);
-                    const safeTitle = (chapterData.title || `章节${i + 1}`).replace(/[\\/:*?"<>|]/g, '_');
-                    artifacts.push({
-                        blob: new Blob([chText], { type: mime }),
-                        filename: `${baseFilename}_${i + 1}_${safeTitle}${ext}`,
-                        mimeType: mime,
-                    });
-                }
-                return artifacts;
-            }
-            // 合并下载
-            const text = getOutputText(legacy, options);
-            return [
-                {
-                    blob: new Blob([text], { type: mime }),
-                    filename: `${baseFilename}${ext}`,
-                    mimeType: mime,
-                },
-            ];
+            const plan = (0, export_plan_4.planExportDocuments)(sourceResult, options, EXTENSIONS[options.format]);
+            const artifacts = options.format === 'word'
+                ? await this.renderWord(plan.documents, options)
+                : this.renderText(plan.documents, options);
+            // 逐章拆出的文件太多：不再逐个下载，打成一个压缩包
+            if (plan.archive)
+                return [await bundleArchive(artifacts, plan.archive.filename)];
+            return artifacts;
         }
         previewText(result, options) {
             // 原版行为：Word 格式不支持复制文本
             if (options.format === 'word')
                 return '';
-            return getOutputText((0, legacy_bridge_5.toLegacyResult)(result), options);
+            // 复制的内容与下载的合并文件一致：强制走「多章节单文件」这一份计划
+            const { documents } = (0, export_plan_4.planExportDocuments)(result, { ...options, splitByChapter: false }, EXTENSIONS[options.format]);
+            const document = documents[0];
+            if (!document)
+                return '';
+            return options.format === 'md'
+                ? (0, markdown_formatter_1.formatSectionsOutputMD)(document.sections, options)
+                : (0, text_formatter_1.formatSectionsOutput)(document.sections, options);
+        }
+        /** Word：每个计划一份 .docx（题库导入必带答案、禁打乱/错题） */
+        async renderWord(documents, options) {
+            const isBankImport = options.bankImport;
+            const withWrong = !isBankImport && options.withWrong;
+            const artifacts = [];
+            window.__xxt_failed_image_count = 0;
+            for (const document of documents) {
+                const failedBefore = window.__xxt_failed_image_count || 0;
+                const blob = await (0, word_exporter_1.generateWordBlob)(document.title, document.sections, {
+                    withAnswers: isBankImport || options.withAnswers,
+                    withWrong,
+                    bankImport: isBankImport,
+                });
+                artifacts.push({
+                    blob,
+                    filename: document.filename,
+                    mimeType: word_exporter_1.WORD_MIME,
+                    // 图片计数是全局累加的，这里取本文件的增量
+                    failedImages: (window.__xxt_failed_image_count || 0) - failedBefore,
+                });
+            }
+            return artifacts;
+        }
+        /** TXT / Markdown：计划里的每个文件各渲染一份文本 */
+        renderText(documents, options) {
+            const format = options.format === 'md' ? 'md' : 'txt';
+            const mime = TEXT_MIME[format];
+            return documents.map((document) => {
+                const text = format === 'md'
+                    ? (0, markdown_formatter_1.formatSectionsOutputMD)(document.sections, options)
+                    : (0, text_formatter_1.formatSectionsOutput)(document.sections, options);
+                return {
+                    blob: new Blob([text], { type: mime }),
+                    filename: document.filename,
+                    mimeType: mime,
+                };
+            });
         }
     }
     exports.ExportService = ExportService;
@@ -6102,7 +6744,7 @@ define("infrastructure/settings-repository", ["require", "exports", "domain/sett
     }
     exports.SettingsRepository = SettingsRepository;
 });
-define("application/chapter-locator", ["require", "exports", "utils/text"], function (require, exports, text_6) {
+define("application/chapter-locator", ["require", "exports", "utils/text"], function (require, exports, text_7) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.ChapterLocator = void 0;
@@ -6124,21 +6766,31 @@ define("application/chapter-locator", ["require", "exports", "utils/text"], func
         '.posCatalog_select',
     ];
     // 分组标题：第一级目录项（真实结构为 .posCatalog_select.firstLayer > span.posCatalog_title），
-    // 它们不是可提取章节，必须排除
+    // 它们不是可提取章节，但要作为「章」标题参与两级导出
     const CHAPTER_GROUP_SELECTORS = ['.firstLayer', '.posCatalog_title'];
+    // 编号节点：章与小节都用 .posCatalog_sbar，老结构里小节用 .posCatalog_num
+    const CHAPTER_NUMBER_SELECTORS = ['.posCatalog_sbar', '.posCatalog_num', '.chapter-num'];
     const ACTIVE_CLASSES = ['active', 'cur', 'current', 'on', 'selected', 'posCatalog_active'];
+    /** 「1.1」「2.3」这类编号前缀；必须是纯数字点号（避免把「3D 打印」当成编号） */
+    const SECTION_NUMBER_PATTERN = /^([0-9]+(?:\.[0-9]+)*)(?:\s|$)/;
     /** Finds and activates course chapter entries without embedding extraction logic. */
     class ChapterLocator {
         constructor(root = document) {
             this.root = root;
         }
         list() {
-            return this.elements().map((element, index) => ({
-                index,
-                id: this.idOf(element, index),
-                title: this.titleOf(element, index),
-                active: this.isActive(element),
-            }));
+            return this.entries().map((entry, index) => {
+                const identity = this.identityOf(entry.element);
+                return {
+                    index,
+                    id: this.idOf(entry.element, index),
+                    // 名字读不出时退回「第 N 章」，与改动前一致（面板上不能出现空标题）
+                    title: identity.title || `第 ${index + 1} 章`,
+                    label: identity.label,
+                    active: this.isActive(entry.element),
+                    group: entry.group,
+                };
+            });
         }
         activeIndex() {
             const index = this.elements().findIndex((element) => this.isActive(element));
@@ -6156,6 +6808,13 @@ define("application/chapter-locator", ["require", "exports", "utils/text"], func
             return true;
         }
         elements() {
+            return this.entries().map((entry) => entry.element);
+        }
+        /**
+         * 解析目录选择器：沿用「按优先级挑第一个命中数 > 1 的选择器」的既有判定，
+         * 保证「哪些节点算章节」与改动前完全一致。
+         */
+        resolveSearch() {
             const searchRoots = [this.root];
             for (const selector of CHAPTER_CONTAINER_SELECTORS) {
                 const container = this.root.querySelector(selector);
@@ -6167,10 +6826,52 @@ define("application/chapter-locator", ["require", "exports", "utils/text"], func
                     const raw = [...searchRoot.querySelectorAll(selector)];
                     const filtered = raw.filter((element) => this.isChapterItem(element));
                     if (filtered.length > 1)
-                        return this.removeNestedDuplicates(filtered);
+                        return { root: searchRoot, selector };
                 }
             }
-            return [];
+            return null;
+        }
+        /**
+         * 按文档顺序走一遍目录：每个小节挂到它前面最近的那个「章」上。
+         *
+         * 只依赖文档顺序、不依赖具体层级，所以「章 → .posCatalog_level > 小节」的真实结构
+         * 与「分组标题和小节平铺成兄弟节点」的老结构都能正确归属。
+         */
+        entries() {
+            const search = this.resolveSearch();
+            if (!search)
+                return [];
+            const entries = [];
+            const scope = { current: null };
+            // 命中即跳过整棵子树：分组标题内部不再识别下级分组，小节命中后也不再下钻
+            //（等价于原来的 removeNestedDuplicates 加「最内层选择器优先」）
+            const consumed = new Set();
+            for (const element of search.root.querySelectorAll('*')) {
+                if (this.isInsideConsumed(element, consumed))
+                    continue;
+                if (this.isGroupElement(element)) {
+                    scope.current = this.groupInfoOf(element);
+                    consumed.add(element);
+                    continue;
+                }
+                if (element.matches(search.selector) && this.isChapterItem(element)) {
+                    entries.push({ element, group: scope.current });
+                    consumed.add(element);
+                }
+            }
+            return entries;
+        }
+        isInsideConsumed(element, consumed) {
+            if (consumed.size === 0)
+                return false;
+            for (let node = element.parentElement; node; node = node.parentElement) {
+                if (consumed.has(node))
+                    return true;
+            }
+            return false;
+        }
+        isGroupElement(element) {
+            return CHAPTER_GROUP_SELECTORS.some((selector) => element.matches(selector));
         }
         /** 是否为可提取章节：排除分组标题与不可见占位项 */
         isChapterItem(element) {
@@ -6180,7 +6881,7 @@ define("application/chapter-locator", ["require", "exports", "utils/text"], func
                 return false;
             if (!this.isVisible(element))
                 return false;
-            const title = this.titleOf(element, 0);
+            const title = this.identityOf(element).title;
             return title.length > 0 && !/^(?:目录|章节|返回)$/u.test(title);
         }
         /** 可见性判定：测试环境（linkedom）没有布局信息，此时不做隐藏判定 */
@@ -6206,27 +6907,53 @@ define("application/chapter-locator", ["require", "exports", "utils/text"], func
                 return element;
             return element.querySelector('a, button, [role="button"]') ?? element;
         }
-        removeNestedDuplicates(elements) {
-            return elements.filter((element) => {
-                return !elements.some((other) => other !== element && other.contains(element));
-            });
+        /** 章信息：编号读页面上的 em，名字优先 title 属性 */
+        groupInfoOf(element) {
+            const identity = this.identityOf(element);
+            return { id: this.idOf(element, 0), label: identity.label, title: identity.title };
+        }
+        /**
+         * 一次读出「编号 + 名字」。
+         *
+         * 名字优先取 title 属性（学习通把它写成不含编号的纯名字，也不带「已完成」这类提示文本），
+         * 没有 title 时才退回文本，并把文本里的编号（`em.posCatalog_sbar`）从名字里去掉 ——
+         * 编号单独存在 label 里、拼标题时再组合，避免出现「1.1 1.1 导论1」。
+         */
+        identityOf(element) {
+            const fromNode = (0, text_7.normalizeInlineWhitespace)(this.numberNodeOf(element)?.textContent ?? '');
+            const explicit = (0, text_7.normalizeInlineWhitespace)(element.getAttribute('title') ??
+                element.querySelector('[title]')?.getAttribute('title') ??
+                '');
+            if (explicit)
+                return { label: fromNode || this.numberPrefixOf(explicit), title: explicit };
+            const named = element.querySelector('.catalog_name, .chapter-title, .posCatalog_name');
+            const raw = (0, text_7.normalizeInlineWhitespace)((named ?? element).textContent ?? '');
+            if (fromNode && raw.startsWith(fromNode)) {
+                return { label: fromNode, title: raw.slice(fromNode.length).trim() };
+            }
+            const prefix = this.numberPrefixOf(raw);
+            return prefix
+                ? { label: prefix, title: raw.slice(prefix.length).trim() }
+                : { label: '', title: raw };
+        }
+        numberPrefixOf(text) {
+            return SECTION_NUMBER_PATTERN.exec(text)?.[1] ?? '';
+        }
+        numberNodeOf(element) {
+            for (const selector of CHAPTER_NUMBER_SELECTORS) {
+                if (element.matches(selector))
+                    return element;
+                const found = element.querySelector(selector);
+                if (found)
+                    return found;
+            }
+            return null;
         }
         idOf(element, index) {
             return (element.dataset.chapterId ??
                 element.dataset.id ??
                 element.getAttribute('id') ??
                 `chapter-${index + 1}`);
-        }
-        titleOf(element, index) {
-            const explicit = element.getAttribute('title') ??
-                element.querySelector('[title]')?.getAttribute('title') ??
-                element.querySelector('.catalog_name, .chapter-title, .posCatalog_name')
-                    ?.innerText ??
-                element.innerText ??
-                // 兜底：章节名节点不带 title 时也要取到真实名称，避免退化成「第 N 章」
-                element.textContent;
-            const title = (0, text_6.normalizeInlineWhitespace)(explicit ?? '');
-            return title || `第 ${index + 1} 章`;
         }
         isActive(element) {
             if (element.getAttribute('aria-current') === 'true')
@@ -6477,7 +7204,7 @@ define("application/extraction-service", ["require", "exports", "domain/question
     }
     exports.ExtractionService = ExtractionService;
 });
-define("application/task-tab-locator", ["require", "exports", "utils/dom", "utils/text"], function (require, exports, dom_9, text_7) {
+define("application/task-tab-locator", ["require", "exports", "utils/dom", "utils/text"], function (require, exports, dom_9, text_8) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.QuestionTabGuard = exports.TaskTabLocator = void 0;
@@ -6585,7 +7312,7 @@ define("application/task-tab-locator", ["require", "exports", "utils/dom", "util
                 (element.textContent ?? '').replace(/^\d+\s*/u, ''),
             ];
             for (const candidate of candidates) {
-                const title = (0, text_7.normalizeInlineWhitespace)(candidate ?? '');
+                const title = (0, text_8.normalizeInlineWhitespace)(candidate ?? '');
                 if (title)
                     return title;
             }
@@ -6705,7 +7432,10 @@ define("application/chapter-extraction-service", ["require", "exports", "domain/
                     });
                     const chapterExtraction = {
                         id: chapter.id,
+                        // 两级信息原样带进结果：导出要靠「小节编号 + 所属章」拼标题
                         title: chapter.title,
+                        label: chapter.label,
+                        group: chapter.group,
                         questions,
                         typeOrder: (0, question_4.deriveTypeOrder)(questions),
                         statistics: (0, question_4.buildStatistics)(questions),
@@ -7189,6 +7919,12 @@ button { -webkit-tap-highlight-color: transparent; }
 .cwe-chapter-all:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
 .cwe-chapter-status { color: var(--cwe-text-muted); font-size: 11px; }
 .cwe-chapter-list { display: grid; gap: 6px; max-height: 390px; overflow: auto; }
+/* 两级目录：章行可整章勾选，小节缩进排在章下面 */
+.cwe-chapter-group { display: grid; gap: 6px; }
+.cwe-chapter-group-head { display: flex; align-items: center; gap: 8px; padding: 9px; border: 1px solid var(--cwe-border); border-radius: 9px; background: var(--cwe-bg-muted); color: var(--cwe-text); cursor: pointer; font-size: 11.5px; font-weight: 700; line-height: 1.4; }
+.cwe-chapter-group-head:hover { border-color: var(--cwe-primary); }
+.cwe-chapter-group-head input { width: 15px; height: 15px; margin: 0; accent-color: var(--cwe-primary); }
+.cwe-chapter-group-items { display: grid; gap: 6px; padding-left: 16px; }
 .cwe-chapter { display: flex; align-items: flex-start; gap: 8px; padding: 9px; border: 1px solid var(--cwe-border); border-radius: 9px; background: var(--cwe-bg-soft); color: var(--cwe-text-secondary); cursor: pointer; font-size: 11.5px; line-height: 1.4; }
 .cwe-chapter:hover { border-color: var(--cwe-primary); }
 .cwe-chapter input { margin-top: 1px; accent-color: var(--cwe-primary); }
@@ -7201,7 +7937,7 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 `;
 });
-define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "utils/shortcut", "utils/text", "ui/styles"], function (require, exports, app_config_1, assert_1, shortcut_2, text_8, styles_1) {
+define("ui/panel-view", ["require", "exports", "app-config", "domain/chapter", "utils/assert", "utils/shortcut", "utils/text", "ui/styles"], function (require, exports, app_config_1, chapter_2, assert_1, shortcut_2, text_9, styles_1) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.PanelView = void 0;
@@ -7458,7 +8194,7 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
                 this.stat(name).textContent = String(count);
                 this.setStatVisible(name, count > 0);
             }
-            this.element('[data-field="filename"]').value = (0, text_8.sanitizeFilename)(result.title);
+            this.element('[data-field="filename"]').value = (0, text_9.sanitizeFilename)(result.title);
             // 提取结果无参考答案时，隐藏“附加参考答案/附加错题汇总”选项
             this.setAnswerOptionsAvailable(result.statistics.withCorrectAnswer > 0);
             this.refreshActionAvailability(true);
@@ -7613,53 +8349,125 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
         showChapterDialog(chapters) {
             const list = this.element('[data-chapter-list]');
             list.replaceChildren();
-            chapters.forEach((chapter) => {
-                const label = document.createElement('label');
-                label.className = 'cwe-chapter';
-                const input = document.createElement('input');
-                input.type = 'checkbox';
-                input.checked = true;
-                input.value = String(chapter.index);
-                const text = document.createElement('span');
-                text.textContent = chapter.title;
-                label.append(input, text);
-                list.appendChild(label);
+            // 目录是两级：有小节所属章时按章分组（章行可整章勾选），扁平目录仍是一层列表
+            const buckets = [];
+            chapters.forEach((chapter, index) => {
+                const group = chapter.group;
+                const key = group ? group.id : `#${index}`;
+                const last = buckets[buckets.length - 1];
+                if (last && last.key === key)
+                    last.items.push(chapter);
+                else
+                    buckets.push({ key, group, items: [chapter] });
+            });
+            const hasGroups = buckets.some((bucket) => bucket.group);
+            buckets.forEach((bucket, bucketIndex) => {
+                const target = hasGroups ? document.createElement('section') : list;
+                if (hasGroups)
+                    target.className = 'cwe-chapter-group';
+                if (bucket.group) {
+                    const head = document.createElement('label');
+                    head.className = 'cwe-chapter-group-head';
+                    const toggle = document.createElement('input');
+                    toggle.type = 'checkbox';
+                    toggle.checked = true;
+                    toggle.dataset.chapterGroupToggle = '';
+                    const title = document.createElement('span');
+                    title.textContent = (0, chapter_2.groupHeadingText)(bucket.group, bucketIndex + 1);
+                    head.append(toggle, title);
+                    target.appendChild(head);
+                }
+                const items = document.createElement('div');
+                items.className = 'cwe-chapter-group-items';
+                for (const chapter of bucket.items)
+                    items.appendChild(this.chapterItem(chapter));
+                target.appendChild(items);
+                if (hasGroups)
+                    list.appendChild(target);
             });
             // 章节数改由工具栏右侧的状态文本显示，底部这行留给提取进度
             this.element('[data-chapter-progress]').textContent = '';
             this.refreshChapterSelection();
             this.openModal('chapters');
         }
+        /** 一个小节的勾选项：显示「1.1 小节名」，值是该小节在目录里的序号 */
+        chapterItem(chapter) {
+            const label = document.createElement('label');
+            label.className = 'cwe-chapter';
+            const input = document.createElement('input');
+            input.type = 'checkbox';
+            input.checked = true;
+            input.value = String(chapter.index);
+            input.dataset.chapterIndex = String(chapter.index);
+            const text = document.createElement('span');
+            text.textContent = (0, chapter_2.sectionHeadingText)(chapter);
+            label.append(input, text);
+            return label;
+        }
+        /** 弹窗里所有小节勾选框（章行的整章勾选框不算） */
+        chapterItems() {
+            return [
+                ...this.shadow.querySelectorAll('[data-chapter-list] input[data-chapter-index]'),
+            ];
+        }
+        /** 某个章行勾选框下的小节勾选框 */
+        groupChapterItems(groupToggle) {
+            const group = groupToggle.closest('.cwe-chapter-group');
+            if (!group)
+                return [];
+            return [...group.querySelectorAll('input[data-chapter-index]')];
+        }
         /**
-         * 刷新章节弹窗的「全选」框与右侧状态文本。
+         * 刷新章节弹窗的「全选」框、每个章行的整章勾选框与右侧状态文本。
          *
-         * 全选框兼作选择状态的指示：全选时勾上、一个都没选时取消、只选了一部分用
-         * indeterminate（半选）表示，避免用户以为「已全选」。
+         * 勾选框兼作选择状态的指示：全选时勾上、一个都没选时取消、只选了一部分用
+         * indeterminate（半选）表示，避免用户以为「已全选」。两级目录时额外报出覆盖了几个章。
          */
         refreshChapterSelection() {
-            const inputs = [...this.shadow.querySelectorAll('[data-chapter-list] input')];
-            const total = inputs.length;
-            const selected = inputs.filter((input) => input.checked).length;
+            const items = this.chapterItems();
+            const total = items.length;
+            const selected = items.filter((input) => input.checked).length;
             const toggle = this.element('[data-action="chapter-all-toggle"]');
             toggle.checked = total > 0 && selected === total;
             toggle.indeterminate = selected > 0 && selected < total;
-            this.element('[data-chapter-status]').textContent =
-                total === 0 ? '未识别到章节' : `已选 ${selected} / 共 ${total} 个章节`;
+            const groupToggles = [
+                ...this.shadow.querySelectorAll('[data-chapter-list] input[data-chapter-group-toggle]'),
+            ];
+            let covered = 0;
+            for (const groupToggle of groupToggles) {
+                const members = this.groupChapterItems(groupToggle);
+                const chosen = members.filter((input) => input.checked).length;
+                groupToggle.checked = members.length > 0 && chosen === members.length;
+                groupToggle.indeterminate = chosen > 0 && chosen < members.length;
+                if (chosen > 0)
+                    covered += 1;
+            }
+            const status = this.element('[data-chapter-status]');
+            if (total === 0) {
+                status.textContent = '未识别到章节';
+            }
+            else if (groupToggles.length === 0) {
+                status.textContent = `已选 ${selected} / 共 ${total} 个章节`;
+            }
+            else {
+                status.textContent = `已选 ${selected}/${total} 小节 · 覆盖 ${covered}/${groupToggles.length} 章`;
+            }
         }
         /**
          * 章节遍历进度。
          *
          * `completed` 在 loading 态是「已完成的章节数」、在 success/failed 态是「含本章的完成数」，
-         * 因此直接当「已提取 N/共 M 章节」的计数用。弹窗里的那行给完整信息（状态 + 章节名 + 失败原因），
+         * 因此直接当「已提取 N/共 M 章节」的计数用。弹窗里的那行给完整信息（状态 + 小节名 + 失败原因），
          * 面板状态栏同步同一个计数，避免关掉弹窗后看不到进度。
          */
         updateChapterProgress(progress) {
             const stateLabel = progress.state === 'loading' ? '正在加载' : progress.state === 'success' ? '已完成' : '失败';
             const counter = `已提取 ${progress.completed}/${progress.total} 章节`;
-            const detail = `${progress.chapter.title}${progress.message ? `（${progress.message}）` : ''}`;
+            const name = (0, chapter_2.sectionHeadingText)(progress.chapter);
+            const detail = `${name}${progress.message ? `（${progress.message}）` : ''}`;
             this.element('[data-chapter-progress]').textContent =
                 `${counter} · ${stateLabel}：${detail}`;
-            this.setStatus(`${counter} · 当前：${progress.chapter.title}`, progress.state === 'failed' ? 'warning' : 'neutral');
+            this.setStatus(`${counter} · 当前：${name}`, progress.state === 'failed' ? 'warning' : 'neutral');
         }
         closeChapterDialog() {
             this.closeModal('chapters');
@@ -7691,14 +8499,27 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
             this.element('[data-action="chapter-all-toggle"]').addEventListener('change', (event) => {
                 this.setAllChapters(event.target.checked);
             });
-            // 单章勾选变化时同步工具栏的全选状态与「已选 N / 共 N」文本
-            this.element('[data-chapter-list]').addEventListener('change', () => this.refreshChapterSelection());
+            // 单章勾选变化时同步工具栏的全选状态、章行的整章勾选框与「已选 N / 共 N」文本
+            this.element('[data-chapter-list]').addEventListener('change', (event) => {
+                const target = event.target;
+                // 章行是「整章勾选」：它一变，本章所有小节跟着变
+                if (target.dataset.chapterGroupToggle !== undefined) {
+                    this.groupChapterItems(target).forEach((input) => {
+                        input.checked = target.checked;
+                    });
+                }
+                this.refreshChapterSelection();
+            });
             this.element('[data-action="start-chapters"]').addEventListener('click', () => {
-                const indexes = [
-                    ...this.shadow.querySelectorAll('[data-chapter-list] input:checked'),
-                ]
+                // 按属性读勾选态而不是用 `:checked` 选择器：行为一致，但离线 DOM 环境下也能测
+                const indexes = this.chapterItems()
+                    .filter((input) => input.checked)
                     .map((input) => Number.parseInt(input.value, 10))
                     .filter(Number.isFinite);
+                // 确认后立刻收起弹窗：几十个章节要提取很久，弹窗一直挡着面板反而看不到进度
+                //（进度改由面板状态栏显示）。一章都没选时保持打开，让用户就地补选。
+                if (indexes.length > 0)
+                    this.closeModal('chapters');
                 this.callbacks.onExtractChapters(indexes);
             });
             this.shadow.querySelectorAll('[data-modal-close]').forEach((button) => {
@@ -7905,7 +8726,7 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
             panel.style.right = 'auto';
         }
         setAllChapters(checked) {
-            this.shadow.querySelectorAll('[data-chapter-list] input').forEach((input) => {
+            this.chapterItems().forEach((input) => {
                 input.checked = checked;
             });
             this.refreshChapterSelection();
@@ -7950,7 +8771,7 @@ define("ui/panel-view", ["require", "exports", "app-config", "utils/assert", "ut
     }
     exports.PanelView = PanelView;
 });
-define("application/app-controller", ["require", "exports", "extractors/dom-diagnostics", "infrastructure/clipboard-service", "infrastructure/download-service", "infrastructure/history-repository", "infrastructure/logger", "infrastructure/settings-repository", "utils/async", "app-config", "utils/hash", "utils/dom", "utils/shortcut", "utils/text", "application/extraction-service", "application/task-tab-locator"], function (require, exports, dom_diagnostics_1, clipboard_service_1, download_service_1, history_repository_1, logger_2, settings_repository_1, async_4, app_config_2, hash_6, dom_10, shortcut_3, text_9, extraction_service_2, task_tab_locator_2) {
+define("application/app-controller", ["require", "exports", "extractors/dom-diagnostics", "infrastructure/clipboard-service", "infrastructure/download-service", "infrastructure/history-repository", "infrastructure/logger", "infrastructure/settings-repository", "utils/async", "app-config", "utils/hash", "utils/dom", "utils/shortcut", "utils/text", "application/extraction-service", "application/task-tab-locator"], function (require, exports, dom_diagnostics_1, clipboard_service_1, download_service_1, history_repository_1, logger_2, settings_repository_1, async_4, app_config_2, hash_6, dom_10, shortcut_3, text_10, extraction_service_2, task_tab_locator_2) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.AppController = void 0;
@@ -8037,7 +8858,7 @@ define("application/app-controller", ["require", "exports", "extractors/dom-diag
             }
             catch (error) {
                 this.logger.warn('Extraction failed', error);
-                this.view.setStatus((0, text_9.humanizeError)(error), 'error');
+                this.view.setStatus((0, text_10.humanizeError)(error), 'error');
             }
             finally {
                 this.view.setBusy(null);
@@ -8097,7 +8918,7 @@ define("application/app-controller", ["require", "exports", "extractors/dom-diag
             }
             catch (error) {
                 this.logger.warn('Chapter extraction failed', error);
-                this.view.setStatus((0, text_9.humanizeError)(error), 'error');
+                this.view.setStatus((0, text_10.humanizeError)(error), 'error');
             }
             finally {
                 this.view.setBusy(null);
@@ -8108,7 +8929,7 @@ define("application/app-controller", ["require", "exports", "extractors/dom-diag
             this.currentResult = result;
             this.view.renderResult(result);
             const options = this.view.readExportOptions();
-            this.view.applyExportOptions({ ...options, filename: (0, text_9.sanitizeFilename)(result.title) });
+            this.view.applyExportOptions({ ...options, filename: (0, text_10.sanitizeFilename)(result.title) });
         }
         async downloadCurrent() {
             if (!this.currentResult) {
@@ -8124,8 +8945,13 @@ define("application/app-controller", ["require", "exports", "extractors/dom-diag
                 this.addHistory(this.currentResult, options);
                 // 下载状态提示与主脚本保持一致
                 const warnMsg = failedImages > 0 ? `（${failedImages} 张图片加载失败）` : '';
+                // 逐章文件太多时导出的是压缩包：报「打包了几个章节文件」比「下载了 1 个文件」有用
+                const archived = artifacts[0]?.archiveEntries ?? 0;
                 let message;
-                if (artifacts.length > 1) {
+                if (archived > 0) {
+                    message = `章节较多，已把 ${archived} 个章节文件打包成 1 个 zip`;
+                }
+                else if (artifacts.length > 1) {
                     // 勾选「按章节拆分文件」时，各种格式都是一章一个文件
                     message = `已下载 ${artifacts.length} 个章节文件`;
                 }
@@ -8147,7 +8973,7 @@ define("application/app-controller", ["require", "exports", "extractors/dom-diag
             catch (error) {
                 this.logger.error('Export failed', error);
                 const prefix = options.format === 'word' ? 'Word 导出失败: ' : '导出失败：';
-                this.view.setStatus(`${prefix}${(0, text_9.humanizeError)(error)}`, 'error');
+                this.view.setStatus(`${prefix}${(0, text_10.humanizeError)(error)}`, 'error');
             }
             finally {
                 this.view.setBusy(null);
@@ -8171,7 +8997,7 @@ define("application/app-controller", ["require", "exports", "extractors/dom-diag
                 this.view.setStatus('已复制到剪贴板', 'success');
             }
             catch (error) {
-                this.view.setStatus(`复制失败：${(0, text_9.humanizeError)(error)}`, 'error');
+                this.view.setStatus(`复制失败：${(0, text_10.humanizeError)(error)}`, 'error');
             }
             finally {
                 this.view.setBusy(null);
@@ -8190,7 +9016,7 @@ define("application/app-controller", ["require", "exports", "extractors/dom-diag
                 this.view.setStatus('诊断信息已复制到剪贴板，直接粘贴发给维护者即可', 'success');
             }
             catch (error) {
-                this.view.setStatus(`复制诊断失败：${(0, text_9.humanizeError)(error)}`, 'error');
+                this.view.setStatus(`复制诊断失败：${(0, text_10.humanizeError)(error)}`, 'error');
             }
         }
         addHistory(result, options) {
@@ -8230,7 +9056,7 @@ define("application/app-controller", ["require", "exports", "extractors/dom-diag
                 this.view.setStatus(`历史文件已重新下载`, 'success');
             }
             catch (error) {
-                this.view.setStatus(`重新下载失败：${(0, text_9.humanizeError)(error)}`, 'error');
+                this.view.setStatus(`重新下载失败：${(0, text_10.humanizeError)(error)}`, 'error');
             }
             finally {
                 this.view.setBusy(null);

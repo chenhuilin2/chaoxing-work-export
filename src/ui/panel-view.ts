@@ -1,4 +1,5 @@
 import { APP_NAME, APP_VERSION, UI_HOST_ID } from '../app-config';
+import { type ChapterGroupInfo, groupHeadingText, sectionHeadingText } from '../domain/chapter';
 import type { ExportOptions } from '../domain/export-options';
 import type { HistoryEntry } from '../domain/history';
 import type { ExtractionResult } from '../domain/question';
@@ -482,57 +483,136 @@ export class PanelView {
   showChapterDialog(chapters: readonly ChapterDescriptor[]): void {
     const list = this.element<HTMLElement>('[data-chapter-list]');
     list.replaceChildren();
-    chapters.forEach((chapter) => {
-      const label = document.createElement('label');
-      label.className = 'cwe-chapter';
-      const input = document.createElement('input');
-      input.type = 'checkbox';
-      input.checked = true;
-      input.value = String(chapter.index);
-      const text = document.createElement('span');
-      text.textContent = chapter.title;
-      label.append(input, text);
-      list.appendChild(label);
+
+    // 目录是两级：有小节所属章时按章分组（章行可整章勾选），扁平目录仍是一层列表
+    const buckets: {
+      readonly key: string;
+      readonly group: ChapterGroupInfo | null;
+      readonly items: ChapterDescriptor[];
+    }[] = [];
+    chapters.forEach((chapter, index) => {
+      const group = chapter.group;
+      const key = group ? group.id : `#${index}`;
+      const last = buckets[buckets.length - 1];
+      if (last && last.key === key) last.items.push(chapter);
+      else buckets.push({ key, group, items: [chapter] });
     });
+
+    const hasGroups = buckets.some((bucket) => bucket.group);
+    buckets.forEach((bucket, bucketIndex) => {
+      const target = hasGroups ? document.createElement('section') : list;
+      if (hasGroups) target.className = 'cwe-chapter-group';
+      if (bucket.group) {
+        const head = document.createElement('label');
+        head.className = 'cwe-chapter-group-head';
+        const toggle = document.createElement('input');
+        toggle.type = 'checkbox';
+        toggle.checked = true;
+        toggle.dataset.chapterGroupToggle = '';
+        const title = document.createElement('span');
+        title.textContent = groupHeadingText(bucket.group, bucketIndex + 1);
+        head.append(toggle, title);
+        target.appendChild(head);
+      }
+      const items = document.createElement('div');
+      items.className = 'cwe-chapter-group-items';
+      for (const chapter of bucket.items) items.appendChild(this.chapterItem(chapter));
+      target.appendChild(items);
+      if (hasGroups) list.appendChild(target);
+    });
+
     // 章节数改由工具栏右侧的状态文本显示，底部这行留给提取进度
     this.element<HTMLElement>('[data-chapter-progress]').textContent = '';
     this.refreshChapterSelection();
     this.openModal('chapters');
   }
 
+  /** 一个小节的勾选项：显示「1.1 小节名」，值是该小节在目录里的序号 */
+  private chapterItem(chapter: ChapterDescriptor): HTMLLabelElement {
+    const label = document.createElement('label');
+    label.className = 'cwe-chapter';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = true;
+    input.value = String(chapter.index);
+    input.dataset.chapterIndex = String(chapter.index);
+    const text = document.createElement('span');
+    text.textContent = sectionHeadingText(chapter);
+    label.append(input, text);
+    return label;
+  }
+
+  /** 弹窗里所有小节勾选框（章行的整章勾选框不算） */
+  private chapterItems(): HTMLInputElement[] {
+    return [
+      ...this.shadow.querySelectorAll<HTMLInputElement>(
+        '[data-chapter-list] input[data-chapter-index]',
+      ),
+    ];
+  }
+
+  /** 某个章行勾选框下的小节勾选框 */
+  private groupChapterItems(groupToggle: HTMLInputElement): HTMLInputElement[] {
+    const group = groupToggle.closest<HTMLElement>('.cwe-chapter-group');
+    if (!group) return [];
+    return [...group.querySelectorAll<HTMLInputElement>('input[data-chapter-index]')];
+  }
+
   /**
-   * 刷新章节弹窗的「全选」框与右侧状态文本。
+   * 刷新章节弹窗的「全选」框、每个章行的整章勾选框与右侧状态文本。
    *
-   * 全选框兼作选择状态的指示：全选时勾上、一个都没选时取消、只选了一部分用
-   * indeterminate（半选）表示，避免用户以为「已全选」。
+   * 勾选框兼作选择状态的指示：全选时勾上、一个都没选时取消、只选了一部分用
+   * indeterminate（半选）表示，避免用户以为「已全选」。两级目录时额外报出覆盖了几个章。
    */
   private refreshChapterSelection(): void {
-    const inputs = [...this.shadow.querySelectorAll<HTMLInputElement>('[data-chapter-list] input')];
-    const total = inputs.length;
-    const selected = inputs.filter((input) => input.checked).length;
+    const items = this.chapterItems();
+    const total = items.length;
+    const selected = items.filter((input) => input.checked).length;
     const toggle = this.element<HTMLInputElement>('[data-action="chapter-all-toggle"]');
     toggle.checked = total > 0 && selected === total;
     toggle.indeterminate = selected > 0 && selected < total;
-    this.element<HTMLElement>('[data-chapter-status]').textContent =
-      total === 0 ? '未识别到章节' : `已选 ${selected} / 共 ${total} 个章节`;
+
+    const groupToggles = [
+      ...this.shadow.querySelectorAll<HTMLInputElement>(
+        '[data-chapter-list] input[data-chapter-group-toggle]',
+      ),
+    ];
+    let covered = 0;
+    for (const groupToggle of groupToggles) {
+      const members = this.groupChapterItems(groupToggle);
+      const chosen = members.filter((input) => input.checked).length;
+      groupToggle.checked = members.length > 0 && chosen === members.length;
+      groupToggle.indeterminate = chosen > 0 && chosen < members.length;
+      if (chosen > 0) covered += 1;
+    }
+
+    const status = this.element<HTMLElement>('[data-chapter-status]');
+    if (total === 0) {
+      status.textContent = '未识别到章节';
+    } else if (groupToggles.length === 0) {
+      status.textContent = `已选 ${selected} / 共 ${total} 个章节`;
+    } else {
+      status.textContent = `已选 ${selected}/${total} 小节 · 覆盖 ${covered}/${groupToggles.length} 章`;
+    }
   }
 
   /**
    * 章节遍历进度。
    *
    * `completed` 在 loading 态是「已完成的章节数」、在 success/failed 态是「含本章的完成数」，
-   * 因此直接当「已提取 N/共 M 章节」的计数用。弹窗里的那行给完整信息（状态 + 章节名 + 失败原因），
+   * 因此直接当「已提取 N/共 M 章节」的计数用。弹窗里的那行给完整信息（状态 + 小节名 + 失败原因），
    * 面板状态栏同步同一个计数，避免关掉弹窗后看不到进度。
    */
   updateChapterProgress(progress: ChapterProgress): void {
     const stateLabel =
       progress.state === 'loading' ? '正在加载' : progress.state === 'success' ? '已完成' : '失败';
     const counter = `已提取 ${progress.completed}/${progress.total} 章节`;
-    const detail = `${progress.chapter.title}${progress.message ? `（${progress.message}）` : ''}`;
+    const name = sectionHeadingText(progress.chapter);
+    const detail = `${name}${progress.message ? `（${progress.message}）` : ''}`;
     this.element<HTMLElement>('[data-chapter-progress]').textContent =
       `${counter} · ${stateLabel}：${detail}`;
     this.setStatus(
-      `${counter} · 当前：${progress.chapter.title}`,
+      `${counter} · 当前：${name}`,
       progress.state === 'failed' ? 'warning' : 'neutral',
     );
   }
@@ -586,16 +666,26 @@ export class PanelView {
         this.setAllChapters((event.target as HTMLInputElement).checked);
       },
     );
-    // 单章勾选变化时同步工具栏的全选状态与「已选 N / 共 N」文本
-    this.element<HTMLElement>('[data-chapter-list]').addEventListener('change', () =>
-      this.refreshChapterSelection(),
-    );
+    // 单章勾选变化时同步工具栏的全选状态、章行的整章勾选框与「已选 N / 共 N」文本
+    this.element<HTMLElement>('[data-chapter-list]').addEventListener('change', (event) => {
+      const target = event.target as HTMLInputElement;
+      // 章行是「整章勾选」：它一变，本章所有小节跟着变
+      if (target.dataset.chapterGroupToggle !== undefined) {
+        this.groupChapterItems(target).forEach((input) => {
+          input.checked = target.checked;
+        });
+      }
+      this.refreshChapterSelection();
+    });
     this.element('[data-action="start-chapters"]').addEventListener('click', () => {
-      const indexes = [
-        ...this.shadow.querySelectorAll<HTMLInputElement>('[data-chapter-list] input:checked'),
-      ]
+      // 按属性读勾选态而不是用 `:checked` 选择器：行为一致，但离线 DOM 环境下也能测
+      const indexes = this.chapterItems()
+        .filter((input) => input.checked)
         .map((input) => Number.parseInt(input.value, 10))
         .filter(Number.isFinite);
+      // 确认后立刻收起弹窗：几十个章节要提取很久，弹窗一直挡着面板反而看不到进度
+      //（进度改由面板状态栏显示）。一章都没选时保持打开，让用户就地补选。
+      if (indexes.length > 0) this.closeModal('chapters');
       this.callbacks.onExtractChapters(indexes);
     });
 
@@ -822,7 +912,7 @@ export class PanelView {
   }
 
   private setAllChapters(checked: boolean): void {
-    this.shadow.querySelectorAll<HTMLInputElement>('[data-chapter-list] input').forEach((input) => {
+    this.chapterItems().forEach((input) => {
       input.checked = checked;
     });
     this.refreshChapterSelection();

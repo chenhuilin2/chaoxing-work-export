@@ -377,6 +377,12 @@ button { -webkit-tap-highlight-color: transparent; }
 .cwe-chapter-all:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
 .cwe-chapter-status { color: var(--cwe-text-muted); font-size: 11px; }
 .cwe-chapter-list { display: grid; gap: 6px; max-height: 390px; overflow: auto; }
+/* 两级目录：章行可整章勾选，小节缩进排在章下面 */
+.cwe-chapter-group { display: grid; gap: 6px; }
+.cwe-chapter-group-head { display: flex; align-items: center; gap: 8px; padding: 9px; border: 1px solid var(--cwe-border); border-radius: 9px; background: var(--cwe-bg-muted); color: var(--cwe-text); cursor: pointer; font-size: 11.5px; font-weight: 700; line-height: 1.4; }
+.cwe-chapter-group-head:hover { border-color: var(--cwe-primary); }
+.cwe-chapter-group-head input { width: 15px; height: 15px; margin: 0; accent-color: var(--cwe-primary); }
+.cwe-chapter-group-items { display: grid; gap: 6px; padding-left: 16px; }
 .cwe-chapter { display: flex; align-items: flex-start; gap: 8px; padding: 9px; border: 1px solid var(--cwe-border); border-radius: 9px; background: var(--cwe-bg-soft); color: var(--cwe-text-secondary); cursor: pointer; font-size: 11.5px; line-height: 1.4; }
 .cwe-chapter:hover { border-color: var(--cwe-primary); }
 .cwe-chapter input { margin-top: 1px; accent-color: var(--cwe-primary); }

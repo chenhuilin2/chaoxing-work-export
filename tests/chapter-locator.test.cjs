@@ -1,10 +1,11 @@
 // 章节定位器用例：覆盖学习通目录树的真实结构（span.posCatalog_name 才是可点章节，
-// .firstLayer / .posCatalog_title 是分组标题）。
+// .firstLayer / .posCatalog_title 是分组标题；分组标题同时充当导出的「章」）。
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { createDocument } = require('./dom-setup.cjs');
 const { ChapterLocator } = require('../.tmp/test/src/application/chapter-locator.js');
+const { groupHeadingText, sectionHeadingText } = require('../.tmp/test/src/domain/chapter.js');
 
 /** 与 html/章节练习完整页.html 一致的目录树：一个分组标题 + 两个章节 */
 const CATALOG_HTML = `
@@ -103,4 +104,101 @@ test('分组标题自身被识别为分组时不进入章节列表', () => {
     new ChapterLocator(root).list().map((chapter) => chapter.title),
     ['1.1 小节', '1.2 小节'],
   );
+});
+
+/** 真实两级结构：章是 .firstLayer 分组标题，小节在 .posCatalog_level 里，编号写在 em 里 */
+const NESTED_CATALOG_HTML = `
+<div id="coursetree">
+  <div class="posCatalog_list">
+    <ul>
+      <li>
+        <div class="posCatalog_select firstLayer" id="g1">
+          <span class="posCatalog_title" title="担当复兴大任 成就时代新人"><em class="posCatalog_sbar">1</em> 担当复兴大任 成就时代新人</span>
+        </div>
+        <div class="posCatalog_level">
+          <ul>
+            <li><div class="posCatalog_select" id="cur1"><span class="posCatalog_name" title="如何认识新方位" onclick="getTeacherAjax('a');"><em class="posCatalog_sbar">1.1</em> 如何认识新方位</span></div></li>
+            <li><div class="posCatalog_select" id="cur2"><span class="posCatalog_name" title="如何认识新使命" onclick="getTeacherAjax('b');"><em class="posCatalog_sbar">1.2</em> 如何认识新使命</span></div></li>
+          </ul>
+        </div>
+      </li>
+      <li>
+        <div class="posCatalog_select firstLayer" id="g2">
+          <span class="posCatalog_title" title="领悟人生真谛 把握人生方向"><em class="posCatalog_sbar">2</em> 领悟人生真谛 把握人生方向</span>
+        </div>
+        <div class="posCatalog_level">
+          <ul>
+            <li><div class="posCatalog_select" id="cur3"><span class="posCatalog_name" title="为什么要思考人生问题" onclick="getTeacherAjax('c');"><em class="posCatalog_sbar">2.1</em> 为什么要思考人生问题</span></div></li>
+          </ul>
+        </div>
+      </li>
+    </ul>
+  </div>
+</div>`;
+
+test('两级目录：小节挂到所属章上，名字与编号分别读 title 属性与页面 em', () => {
+  const chapters = new ChapterLocator(createDocument(NESTED_CATALOG_HTML)).list();
+
+  assert.deepEqual(
+    chapters.map((chapter) => chapter.title),
+    ['如何认识新方位', '如何认识新使命', '为什么要思考人生问题'],
+  );
+  assert.deepEqual(
+    chapters.map((chapter) => chapter.label),
+    ['1.1', '1.2', '2.1'],
+  );
+  assert.deepEqual(
+    chapters.map((chapter) => chapter.group?.id),
+    ['g1', 'g1', 'g2'],
+  );
+  // 章名取分组标题的 title 属性，章号取它内部的 em
+  assert.deepEqual(chapters[0].group, {
+    id: 'g1',
+    label: '1',
+    title: '担当复兴大任 成就时代新人',
+  });
+  // 面板 / 导出用的显示名：章用「第 N 章 章名」，小节用页面的真编号
+  assert.equal(sectionHeadingText(chapters[0]), '1.1 如何认识新方位');
+  assert.equal(groupHeadingText(chapters[2].group, 1), '第 2 章 领悟人生真谛 把握人生方向');
+});
+
+test('扁平目录：分组标题与小节平铺成兄弟节点时，仍按文档顺序归属', () => {
+  const root = createDocument(`
+    <div class="posCatalog_list">
+      <div class="posCatalog_select firstLayer" id="g1"><span class="posCatalog_title" title="第一章"><em class="posCatalog_sbar">1</em> 第一章</span></div>
+      <div class="posCatalog_select" id="c1"><span class="posCatalog_name" title="小节 A" onclick="go('a');"><em class="posCatalog_sbar">1.1</em> 小节 A</span></div>
+      <div class="posCatalog_select firstLayer" id="g2"><span class="posCatalog_title" title="第二章"><em class="posCatalog_sbar">2</em> 第二章</span></div>
+      <div class="posCatalog_select" id="c2"><span class="posCatalog_name" title="小节 B" onclick="go('b');"><em class="posCatalog_sbar">2.1</em> 小节 B</span></div>
+    </div>`);
+
+  const chapters = new ChapterLocator(root).list();
+  assert.deepEqual(
+    chapters.map((chapter) => chapter.group?.id),
+    ['g1', 'g2'],
+  );
+  assert.deepEqual(
+    chapters.map((chapter) => chapter.label),
+    ['1.1', '2.1'],
+  );
+});
+
+test('老结构：名字里自带编号（title="1.1 小节"）时不再叠加编号', () => {
+  const root = createDocument(`
+    <div class="chapter-list">
+      <div class="posCatalog_select" id="c1"><span class="posCatalog_name" title="1.1 小节" onclick="go('a');">1.1 小节</span></div>
+      <div class="posCatalog_select" id="c2"><span class="posCatalog_name" title="1.2 小节" onclick="go('b');">1.2 小节</span></div>
+    </div>`);
+
+  const chapters = new ChapterLocator(root).list();
+  // 扁平目录：没有章，只有节
+  assert.deepEqual(
+    chapters.map((chapter) => chapter.group),
+    [null, null],
+  );
+  // 编号从名字前缀识别，显示名仍是原来的「1.1 小节」，不会变成「1.1 1.1 小节」
+  assert.deepEqual(
+    chapters.map((chapter) => chapter.label),
+    ['1.1', '1.2'],
+  );
+  assert.deepEqual(chapters.map(sectionHeadingText), ['1.1 小节', '1.2 小节']);
 });

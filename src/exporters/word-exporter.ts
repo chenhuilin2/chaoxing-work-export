@@ -1,10 +1,12 @@
 // Word 文档生成：以下函数逐行移植自主脚本 chaoxing-work-export.user.js，保持输出完全一致。
-// 多章节支持：正文按 sections 顺序渲染，sections 多于一个时每章前插章节标题并分页
-//（按章节拆分成多个文件时，每份文档只有一个 section，因此不插章节标题）。
+// 两级标题支持：正文 / 答案页 / 错题页都按 export-plan 给出的「章标题 + 小节标题」渲染 ——
+// 章标题只在同一份文档含多个章时出现（并据此分页）；单章时每份文档只有一个 section，不插标题。
+// 章节顺序：多章单文件时是「章 1 题目 → 章 1 答案 → 章 1 错题 →（分页）章 2 题目 → …」，
+// 答案与错题跟着章走，不再集中堆在文档末尾。
 import type { RichContent } from '../domain/question';
 import { answerContent, formatRichForText, optionContent, questionContent } from './legacy-bridge';
 import type { LegacyTypeKey } from './legacy-bridge';
-import type { WordSection } from './word-plan';
+import { type ExportSection, chapterBlocks, groupSections } from './export-plan';
 
 // 图片加载失败的全局计数（与主脚本一致，通过 window 传递）
 declare global {
@@ -15,7 +17,7 @@ declare global {
 
 export const WORD_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
-/** Word 渲染开关（文件划分由 word-plan.ts 决定） */
+/** Word 渲染开关（文件划分由 export-plan.ts 决定） */
 export interface WordRenderOptions {
   readonly withAnswers: boolean;
   readonly withWrong: boolean;
@@ -143,7 +145,9 @@ function cleanAnswerText(text: string): string {
 }
 
 const FONT = 'Microsoft YaHei';
-// 题型大题头字号（半磅）：比章节标题小一号（章节标题 28 = 14pt → 题型 24 = 12pt），与正文 22 拉开层次
+// 字号层级（半磅）：文档标题 32 > 章标题（正文大标题）28 > 小节标题 26 > 题型大题头 24 > 正文 22。
+// 小节标题比章标题小一号，题型头再小一号，四层在页面上能一眼分出来。
+const SIZE_SECTION_HEADING = 26;
 const SIZE_TYPE_HEADER = 24;
 const COLOR = {
   title: '1F2937',
@@ -177,7 +181,7 @@ function ordinalLabel(index: number): string {
  * 序号按本章**实际有题目**的题型从「一」重新排：此前用全局固定的题型序号，
  * 某章没有单选题时多选题就会顶着「二、多项选择题」的跳号。
  */
-function buildTypeHeaders(section: WordSection): Map<LegacyTypeKey, string> {
+function buildTypeHeaders(section: ExportSection): Map<LegacyTypeKey, string> {
   const headers = new Map<LegacyTypeKey, string>();
   let ordinal = 0;
   for (const qtype of section.typeOrder) {
@@ -218,7 +222,7 @@ function bankImportSections(children: any[]): any[] {
   ];
 }
 
-/** 试卷正文的章节大标题：多章节单文件时用来分节（除首章外先分页） */
+/** 试卷正文的章标题：多章单文件时用来分节（除首章外先分页） */
 function chapterHeadingParagraph(text: string, pageBreak: boolean): any[] {
   const { Paragraph, TextRun, AlignmentType, HeadingLevel, PageBreak } = docx;
   const parts: any[] = [];
@@ -234,7 +238,19 @@ function chapterHeadingParagraph(text: string, pageBreak: boolean): any[] {
   return parts;
 }
 
-/** 答案页 / 错题页里的章节小标题（不强制分页，与上级大标题区分） */
+/** 正文里的小节标题（「1.1 如何认识新方位」）：比章标题小一号，不分页 */
+function sectionHeadingParagraph(text: string): any {
+  const { Paragraph, TextRun, HeadingLevel } = docx;
+  return new Paragraph({
+    children: [
+      new TextRun({ text, font: FONT, size: SIZE_SECTION_HEADING, bold: true, color: COLOR.title }),
+    ],
+    heading: HeadingLevel.HEADING_3,
+    spacing: { before: 200, after: 120 },
+  });
+}
+
+/** 答案页 / 错题页里的章标题（不强制分页，比正文大标题小一号） */
 function chapterLabelParagraph(text: string): any {
   const { Paragraph, TextRun } = docx;
   return new Paragraph({
@@ -243,8 +259,22 @@ function chapterLabelParagraph(text: string): any {
   });
 }
 
+/** 答案页 / 错题页里的小节标题：作定位标签用，灰蓝色与紧随其后的题型头区分开 */
+function sectionLabelParagraph(text: string): any {
+  const { Paragraph, TextRun } = docx;
+  return new Paragraph({
+    children: [
+      new TextRun({ text, font: FONT, size: SIZE_TYPE_HEADER, bold: true, color: COLOR.type }),
+    ],
+    spacing: { before: 160, after: 100 },
+  });
+}
+
 /** 题库导入格式：生成学习通智能导入兼容的 Word 文档 */
-async function buildBankImportBlob(title: string, sections: readonly WordSection[]): Promise<Blob> {
+async function buildBankImportBlob(
+  title: string,
+  sections: readonly ExportSection[],
+): Promise<Blob> {
   const { Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel } = docx;
   const children: any[] = [];
   children.push(
@@ -365,63 +395,98 @@ async function buildBankImportBlob(title: string, sections: readonly WordSection
   return await Packer.toBlob(doc);
 }
 
+/** 试卷正文一段的排版开关 */
+interface PaperBodyLayout {
+  /** 文档大标题；null 表示这段不是文档开头，不重复打印标题与统计 */
+  readonly title: string | null;
+  /** 统计摘要的统计范围（多章拆段时传全文，保证「共 N 道题」不缩水） */
+  readonly statsSections: readonly ExportSection[];
+  /** 这段之前先分页（多章拆段时第 2 章起为 true） */
+  readonly pageBreakBefore: boolean;
+  /**
+   * 显式章标题。
+   *
+   * 章标题只在同一份文档含多个章时出现，而多章拆段时每段只拿到一章的 sections，
+   * 推断不出「这份文档还有别的章」，所以由调用方直接把章名递进来。
+   */
+  readonly chapterHeading: string | null;
+}
+
 /**
- * 试卷正文：标题 + 统计摘要 + 各章节题目（按题型分组）。
+ * 章的题目部分：可选的大标题 + 统计摘要 + 章标题 + 各小节题目（按小节 → 题型分组）。
  *
  * title 是文档大标题（多章节时是「课程 - N 个章节」这类聚合标题），
- * 与 section.title（章节名，多章节时作为正文里的分节标题）不是一回事。
+ * 与两级标题里的章标题不是一回事。
  */
-async function buildPaperBody(title: string, sections: readonly WordSection[]): Promise<any[]> {
-  const { Paragraph, TextRun, AlignmentType, HeadingLevel } = docx;
+async function buildPaperBody(
+  sections: readonly ExportSection[],
+  layout: PaperBodyLayout,
+): Promise<any[]> {
+  const { Paragraph, TextRun, AlignmentType, HeadingLevel, PageBreak } = docx;
   const children: any[] = [];
-  const multiSection = sections.length > 1;
 
-  // 标题
-  children.push(
-    new Paragraph({
-      children: [
-        new TextRun({ text: title || '试卷', font: FONT, size: 32, bold: true, color: '2563EB' }),
-      ],
-      heading: HeadingLevel.HEADING_1,
-      alignment: AlignmentType.CENTER,
-      spacing: { before: 200, after: 120 },
-    }),
-  );
-
-  // 统计摘要（多章节时跨章节汇总）
-  let totalQ = 0;
-  const typeCount: Record<string, number> = {};
-  for (const section of sections) {
-    for (const qtype of section.typeOrder) {
-      const questions = section.results[qtype];
-      if (!questions || questions.length === 0) continue;
-      typeCount[qtype] = (typeCount[qtype] ?? 0) + questions.length;
-      totalQ += questions.length;
-    }
+  if (layout.pageBreakBefore) {
+    children.push(new Paragraph({ children: [new PageBreak()], spacing: { after: 0 } }));
   }
-  const summary = Object.entries(typeCount)
-    .map(([type, count]) => `${type} ${count} 道`)
-    .join(' / ');
-  children.push(
-    new Paragraph({
-      children: [
-        new TextRun({ text: `共 ${totalQ} 道题`, font: FONT, size: 20, color: COLOR.muted }),
-        ...(summary
-          ? [new TextRun({ text: ` · ${summary}`, font: FONT, size: 20, color: COLOR.muted })]
-          : []),
-      ],
-      alignment: AlignmentType.CENTER,
-      spacing: { before: 60, after: 260 },
-    }),
-  );
 
-  for (let sectionIndex = 0; sectionIndex < sections.length; sectionIndex += 1) {
-    const section = sections[sectionIndex];
-    if (!section) continue;
-    // 多章节单文件：每章前插章节大标题
-    if (multiSection) children.push(...chapterHeadingParagraph(section.title, sectionIndex > 0));
+  if (layout.title !== null) {
+    // 标题
+    children.push(
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: layout.title || '试卷',
+            font: FONT,
+            size: 32,
+            bold: true,
+            color: '2563EB',
+          }),
+        ],
+        heading: HeadingLevel.HEADING_1,
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 200, after: 120 },
+      }),
+    );
 
-    // 题号与题型序号都按章重新开始：每章从第 1 题、从「一、」数起
+    // 统计摘要（多章节时跨章节汇总）
+    let totalQ = 0;
+    const typeCount: Record<string, number> = {};
+    for (const section of layout.statsSections) {
+      for (const qtype of section.typeOrder) {
+        const questions = section.results[qtype];
+        if (!questions || questions.length === 0) continue;
+        typeCount[qtype] = (typeCount[qtype] ?? 0) + questions.length;
+        totalQ += questions.length;
+      }
+    }
+    const summary = Object.entries(typeCount)
+      .map(([type, count]) => `${type} ${count} 道`)
+      .join(' / ');
+    children.push(
+      new Paragraph({
+        children: [
+          new TextRun({ text: `共 ${totalQ} 道题`, font: FONT, size: 20, color: COLOR.muted }),
+          ...(summary
+            ? [new TextRun({ text: ` · ${summary}`, font: FONT, size: 20, color: COLOR.muted })]
+            : []),
+        ],
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 60, after: 260 },
+      }),
+    );
+  }
+
+  // 章标题（只在同一份文档含多个章时出现，单章时文件大标题已写明章名）；
+  // 分页只在换章时发生，逐小节课时小节之间不换页
+  if (layout.chapterHeading)
+    children.push(...chapterHeadingParagraph(layout.chapterHeading, false));
+
+  // 章 → 小节：章标题已单独插入，这里只负责各小节
+  for (const section of sections) {
+    // 小节标题（「1.1 如何认识新方位」）；扁平目录 / 老数据没有这一级
+    if (section.heading) children.push(sectionHeadingParagraph(section.heading));
+
+    // 题号与题型序号都按小节重新开始：每节从第 1 题、从「一、」数起
     const typeHeaders = buildTypeHeaders(section);
     let qNum = 0;
 
@@ -560,10 +625,18 @@ async function buildPaperBody(title: string, sections: readonly WordSection[]): 
   return children;
 }
 
-/** 答案页：分页后按章节、按题型列出正确答案 */
-async function appendAnswerPage(children: any[], sections: readonly WordSection[]): Promise<void> {
+/**
+ * 答案页：分页后按小节、按题型列出正确答案。
+ *
+ * `chapterLabel` 供多章拆段时使用：每段只拿到一章的 sections，`groupSections` 推断不出
+ * 「这份文档还有别的章」，章标题得由调用方递进来；单文件时传 null，行为与改动前一致。
+ */
+async function appendAnswerPage(
+  children: any[],
+  sections: readonly ExportSection[],
+  chapterLabel: string | null = null,
+): Promise<void> {
   const { Paragraph, TextRun, AlignmentType, HeadingLevel, PageBreak } = docx;
-  const multiSection = sections.length > 1;
 
   children.push(
     new Paragraph({
@@ -588,76 +661,87 @@ async function appendAnswerPage(children: any[], sections: readonly WordSection[
     }),
   );
 
-  for (const section of sections) {
-    if (multiSection) children.push(chapterLabelParagraph(section.title));
-    // 答案编号与题目页一致：按章重新从 1 数起，题型序号同样按本章重排
-    const typeHeaders = buildTypeHeaders(section);
-    let aNum = 0;
-    for (const qtype of section.typeOrder) {
-      const questions = section.results[qtype];
-      if (!questions || questions.length === 0) continue;
-      const header = typeHeaders.get(qtype) ?? TYPE_NAMES[qtype] ?? qtype;
-      children.push(
-        new Paragraph({
-          children: [
-            new TextRun({
-              text: header,
-              font: FONT,
-              size: SIZE_TYPE_HEADER,
-              bold: true,
-              color: COLOR.title,
-            }),
-          ],
-          spacing: { after: 120 },
-        }),
-      );
-      for (const q of questions) {
-        aNum++;
-        // 清洗答案文本，去除“正确答案:/我的答案:”等标签组合
-        const answerContentArr = answerContent(q);
-        const cleanedContent = answerContentArr.map((part) => {
-          if (part.type === 'text') {
-            return { ...part, text: cleanAnswerText(part.text) };
-          }
-          return part;
-        });
-        const answerRuns = await buildRichRuns(cleanedContent);
-        if (answerRuns.length === 0) {
-          answerRuns.push(
-            new TextRun({ text: '（未找到答案）', font: FONT, size: 22, color: COLOR.muted }),
-          );
-        } else {
-          // 将答案文本改为绿色加粗
-          answerRuns.forEach((run) => {
-            if (run.font) run.font = FONT;
-            run.size = 22;
-            run.bold = true;
-            run.color = COLOR.answer;
-          });
-        }
+  const groups = groupSections(sections, (section) => section);
+  for (const group of groups) {
+    // 章标题只在多章时出现（多章拆段时由调用方递进来）；小节标题作定位标签，
+    // 答案编号与题目页一致地按小节重启
+    const label = group.heading ?? chapterLabel;
+    if (label) children.push(chapterLabelParagraph(label));
+    for (const entry of group.entries) {
+      const section = entry.value;
+      if (entry.heading) children.push(sectionLabelParagraph(entry.heading));
+      // 答案编号与题目页一致：按小节重新从 1 数起，题型序号同样按本节重排
+      const typeHeaders = buildTypeHeaders(section);
+      let aNum = 0;
+      for (const qtype of section.typeOrder) {
+        const questions = section.results[qtype];
+        if (!questions || questions.length === 0) continue;
+        const header = typeHeaders.get(qtype) ?? TYPE_NAMES[qtype] ?? qtype;
         children.push(
           new Paragraph({
             children: [
-              new TextRun({ text: `${aNum}. `, font: FONT, size: 22, color: COLOR.title }),
-              ...answerRuns,
+              new TextRun({
+                text: header,
+                font: FONT,
+                size: SIZE_TYPE_HEADER,
+                bold: true,
+                color: COLOR.title,
+              }),
             ],
-            spacing: { before: 90, after: 70 },
-            indent: { left: 420 },
+            spacing: { after: 120 },
           }),
         );
-        // 简答题答案常有多行，之间空一行便于区分
-        if (qtype === '简答') {
-          children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
+        for (const q of questions) {
+          aNum++;
+          // 清洗答案文本，去除“正确答案:/我的答案:”等标签组合
+          const answerContentArr = answerContent(q);
+          const cleanedContent = answerContentArr.map((part) => {
+            if (part.type === 'text') {
+              return { ...part, text: cleanAnswerText(part.text) };
+            }
+            return part;
+          });
+          const answerRuns = await buildRichRuns(cleanedContent);
+          if (answerRuns.length === 0) {
+            answerRuns.push(
+              new TextRun({ text: '（未找到答案）', font: FONT, size: 22, color: COLOR.muted }),
+            );
+          } else {
+            // 将答案文本改为绿色加粗
+            answerRuns.forEach((run) => {
+              if (run.font) run.font = FONT;
+              run.size = 22;
+              run.bold = true;
+              run.color = COLOR.answer;
+            });
+          }
+          children.push(
+            new Paragraph({
+              children: [
+                new TextRun({ text: `${aNum}. `, font: FONT, size: 22, color: COLOR.title }),
+                ...answerRuns,
+              ],
+              spacing: { before: 90, after: 70 },
+              indent: { left: 420 },
+            }),
+          );
+          // 简答题答案常有多行，之间空一行便于区分
+          if (qtype === '简答') {
+            children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
+          }
         }
       }
     }
   }
 }
 
-/** 错题汇总页：分页后列出答错的题目、我的答案与正确答案 */
-async function appendWrongPage(children: any[], sections: readonly WordSection[]): Promise<void> {
+/** 错题页：分页后按小节列出答错的题目、我的答案与正确答案（`chapterLabel` 同答案页） */
+async function appendWrongPage(
+  children: any[],
+  sections: readonly ExportSection[],
+  chapterLabel: string | null = null,
+): Promise<void> {
   const { Paragraph, TextRun, AlignmentType, HeadingLevel, PageBreak } = docx;
-  const multiSection = sections.length > 1;
 
   const hasAnyWrong = sections.some((section) =>
     section.typeOrder.some((qtype) =>
@@ -689,140 +773,144 @@ async function appendWrongPage(children: any[], sections: readonly WordSection[]
     }),
   );
 
-  for (const section of sections) {
-    if (multiSection) {
-      // 该章一道错题都没有时，连章节标题一起省掉（与「无错题的题型不出现」一致）
-      const sectionHasWrong = section.typeOrder.some((qtype) =>
-        (section.results[qtype] ?? []).some((question) => question.isWrong),
-      );
-      const before = children.length;
-      if (sectionHasWrong) children.push(chapterLabelParagraph(section.title));
-      // 章节标题先占位，若无错题则回滚（保持既有「空section不出标题」的写法简单）
-      if (!sectionHasWrong && children.length !== before) children.length = before;
-    }
+  // 一道错题都没有的小节（乃至整章）连标题一起省掉（与「无错题的题型不出现」一致），
+  // 过滤交给 groupSections，省掉原来「先占位再回滚」的写法。
+  const hasWrong = (section: ExportSection): boolean =>
+    section.typeOrder.some((qtype) =>
+      (section.results[qtype] ?? []).some((question) => question.isWrong),
+    );
+  const groups = groupSections(sections, (section) => (hasWrong(section) ? section : null));
 
-    // 错题题号要能对上题目页，因此同样按章重新从 1 数起
-    const typeHeaders = buildTypeHeaders(section);
-    let globalNum = 0;
-    for (const qtype of section.typeOrder) {
-      const questions = section.results[qtype];
-      if (!questions || questions.length === 0) continue;
-      if (qtype === '简答') {
-        globalNum += questions.length;
-        continue;
-      }
+  for (const group of groups) {
+    const label = group.heading ?? chapterLabel;
+    if (label) children.push(chapterLabelParagraph(label));
+    for (const entry of group.entries) {
+      const section = entry.value;
+      if (entry.heading) children.push(sectionLabelParagraph(entry.heading));
 
-      const header = typeHeaders.get(qtype) ?? TYPE_NAMES[qtype] ?? qtype;
-      let sectionHasWrong = false;
-      for (const q of questions) {
-        if (q.isWrong) {
-          sectionHasWrong = true;
-          break;
+      // 错题题号要能对上题目页，因此同样按小节重新从 1 数起
+      const typeHeaders = buildTypeHeaders(section);
+      let globalNum = 0;
+      for (const qtype of section.typeOrder) {
+        const questions = section.results[qtype];
+        if (!questions || questions.length === 0) continue;
+        if (qtype === '简答') {
+          globalNum += questions.length;
+          continue;
         }
-      }
-      if (!sectionHasWrong) {
-        globalNum += questions.length;
-        continue;
-      }
 
-      children.push(
-        new Paragraph({
-          children: [
-            new TextRun({
-              text: header,
-              font: FONT,
-              size: SIZE_TYPE_HEADER,
-              bold: true,
-              color: COLOR.title,
-            }),
-          ],
-          spacing: { after: 120 },
-        }),
-      );
-
-      for (const q of questions) {
-        globalNum++;
-        if (!q.isWrong) continue;
-        children.push(
-          new Paragraph({
-            children: await buildRichRuns(questionContent(q), `${globalNum}. `),
-            spacing: { before: 160, after: 40 },
-          }),
-        );
-        const options = q.options || [];
-        if (options.length > 0) {
-          for (const opt of options) {
-            children.push(
-              new Paragraph({
-                children: await buildRichRuns(optionContent(opt), `${opt.letter}. `),
-                indent: { left: 620, hanging: 220 },
-                spacing: { before: 30, after: 30 },
-              }),
-            );
+        const header = typeHeaders.get(qtype) ?? TYPE_NAMES[qtype] ?? qtype;
+        let sectionHasWrong = false;
+        for (const q of questions) {
+          if (q.isWrong) {
+            sectionHasWrong = true;
+            break;
           }
         }
+        if (!sectionHasWrong) {
+          globalNum += questions.length;
+          continue;
+        }
+
         children.push(
           new Paragraph({
             children: [
               new TextRun({
-                text: `我的答案: ${q.myAnswer || '无'}`,
+                text: header,
                 font: FONT,
-                size: 22,
-                color: COLOR.wrong,
-              }),
-            ],
-            spacing: { before: 60, after: 40 },
-            indent: { left: 420 },
-          }),
-        );
-        const answerContentArr = answerContent(q);
-        const cleanedContent = answerContentArr.map((part) => {
-          if (part.type === 'text') {
-            return { ...part, text: cleanAnswerText(part.text) };
-          }
-          return part;
-        });
-        const correctRuns = await buildRichRuns(cleanedContent);
-        if (correctRuns.length === 0) {
-          correctRuns.push(
-            new TextRun({ text: '（未找到答案）', font: FONT, size: 22, color: COLOR.muted }),
-          );
-        } else {
-          correctRuns.forEach((run) => {
-            if (run.font) run.font = FONT;
-            run.size = 22;
-            run.bold = true;
-            run.color = COLOR.answer;
-          });
-        }
-        children.push(
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: '正确答案：',
-                font: FONT,
-                size: 22,
+                size: SIZE_TYPE_HEADER,
                 bold: true,
-                color: COLOR.answer,
+                color: COLOR.title,
               }),
-              ...correctRuns,
             ],
-            spacing: { before: 40, after: 120 },
-            indent: { left: 420 },
+            spacing: { after: 120 },
           }),
         );
-        // 每道题之间空一行
+
+        for (const q of questions) {
+          globalNum++;
+          if (!q.isWrong) continue;
+          children.push(
+            new Paragraph({
+              children: await buildRichRuns(questionContent(q), `${globalNum}. `),
+              spacing: { before: 160, after: 40 },
+            }),
+          );
+          const options = q.options || [];
+          if (options.length > 0) {
+            for (const opt of options) {
+              children.push(
+                new Paragraph({
+                  children: await buildRichRuns(optionContent(opt), `${opt.letter}. `),
+                  indent: { left: 620, hanging: 220 },
+                  spacing: { before: 30, after: 30 },
+                }),
+              );
+            }
+          }
+          children.push(
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: `我的答案: ${q.myAnswer || '无'}`,
+                  font: FONT,
+                  size: 22,
+                  color: COLOR.wrong,
+                }),
+              ],
+              spacing: { before: 60, after: 40 },
+              indent: { left: 420 },
+            }),
+          );
+          const answerContentArr = answerContent(q);
+          const cleanedContent = answerContentArr.map((part) => {
+            if (part.type === 'text') {
+              return { ...part, text: cleanAnswerText(part.text) };
+            }
+            return part;
+          });
+          const correctRuns = await buildRichRuns(cleanedContent);
+          if (correctRuns.length === 0) {
+            correctRuns.push(
+              new TextRun({ text: '（未找到答案）', font: FONT, size: 22, color: COLOR.muted }),
+            );
+          } else {
+            correctRuns.forEach((run) => {
+              if (run.font) run.font = FONT;
+              run.size = 22;
+              run.bold = true;
+              run.color = COLOR.answer;
+            });
+          }
+          children.push(
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: '正确答案：',
+                  font: FONT,
+                  size: 22,
+                  bold: true,
+                  color: COLOR.answer,
+                }),
+                ...correctRuns,
+              ],
+              spacing: { before: 40, after: 120 },
+              indent: { left: 420 },
+            }),
+          );
+          // 每道题之间空一行
+          children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
+        }
+        // 每个类别之间空一行
         children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
       }
-      // 每个类别之间空一行
-      children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
     }
   }
 }
 
 export async function generateWordBlob(
   title: string,
-  sections: readonly WordSection[],
+  sections: readonly ExportSection[],
   options: WordRenderOptions,
 ): Promise<Blob> {
   const { Document, Packer } = docx;
@@ -831,9 +919,42 @@ export async function generateWordBlob(
     return await buildBankImportBlob(title, sections);
   }
 
-  const children = await buildPaperBody(title, sections);
-  if (options.withAnswers) await appendAnswerPage(children, sections);
-  if (options.withWrong) await appendWrongPage(children, sections);
+  const children: any[] = [];
+
+  if (sections.length <= 1) {
+    // 单章（含「按章节拆分」产出的单章文件）：答案与错题本来就在题目之后，保持改动前的结构
+    children.push(
+      ...(await buildPaperBody(sections, {
+        title,
+        statsSections: sections,
+        pageBreakBefore: false,
+        chapterHeading: null,
+      })),
+    );
+    if (options.withAnswers) await appendAnswerPage(children, sections);
+    if (options.withWrong) await appendWrongPage(children, sections);
+  } else {
+    // 多章单文件：逐章「题目 → 答案页 → 错题页」，读完一章就能对答案，不必翻到文件末尾
+    const blocks = chapterBlocks(sections);
+    for (let index = 0; index < blocks.length; index += 1) {
+      const block = blocks[index];
+      if (!block) continue;
+      const chapterSections = block.entries.map((entry) => entry.value);
+
+      children.push(
+        ...(await buildPaperBody(chapterSections, {
+          // 大标题与统计只在文档开头出现一次
+          title: index === 0 ? title : null,
+          statsSections: sections,
+          // 换章才分页
+          pageBreakBefore: index > 0,
+          chapterHeading: block.heading,
+        })),
+      );
+      if (options.withAnswers) await appendAnswerPage(children, chapterSections, block.heading);
+      if (options.withWrong) await appendWrongPage(children, chapterSections, block.heading);
+    }
+  }
 
   const doc = new Document({
     styles: {

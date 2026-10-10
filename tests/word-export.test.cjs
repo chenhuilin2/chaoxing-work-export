@@ -34,19 +34,19 @@ globalThis.docx = {
   PageBreak,
   Document,
   AlignmentType: { CENTER: 'center', LEFT: 'left' },
-  HeadingLevel: { HEADING_1: 'Heading1', HEADING_2: 'Heading2' },
+  HeadingLevel: { HEADING_1: 'Heading1', HEADING_2: 'Heading2', HEADING_3: 'Heading3' },
   convertMillimetersToTwip: (mm) => Math.round((mm / 25.4) * 1440),
   // 真实实现返回 Blob；这里直接把 Document 交回去，方便检查段落
   Packer: { toBlob: async (document) => document },
 };
 
 const { generateWordBlob } = require('../.tmp/test/src/exporters/word-exporter.js');
-const { planWordDocuments } = require('../.tmp/test/src/exporters/word-plan.js');
-const { CHAPTERS, chapter, question, resultOf } = require('./export-fixtures.cjs');
+const { planExportDocuments } = require('../.tmp/test/src/exporters/export-plan.js');
+const { CHAPTERS, NESTED_CHAPTERS, chapter, question, resultOf } = require('./export-fixtures.cjs');
 
 /** 渲染一份文档，直接返回它的段落数组 */
 async function renderDocument(result, options) {
-  const [plan] = planWordDocuments(result, options);
+  const [plan] = planExportDocuments(result, options, '.docx').documents;
   const document = await generateWordBlob(plan.title, plan.sections, {
     withAnswers: options.bankImport || options.withAnswers,
     withWrong: !options.bankImport && options.withWrong,
@@ -82,6 +82,21 @@ function chapterLabels(children) {
         (child.children ?? []).some((run) => run instanceof TextRun && run.size === 26),
     )
     .map(textOf);
+}
+
+/** 正文里的小节标题（HEADING_3） */
+function sectionHeadings(children) {
+  return children
+    .filter((child) => child instanceof Paragraph && child.heading === 'Heading3')
+    .map(textOf);
+}
+
+/** 正文里带分页符的段落（用来验证「只有换章才另起一页」） */
+function pageBreakCount(children) {
+  return children.filter(
+    (child) =>
+      child instanceof Paragraph && (child.children ?? []).some((run) => run instanceof PageBreak),
+  ).length;
 }
 
 /** 取正文里带题号的段落前缀，用来验证编号连续 */
@@ -128,11 +143,12 @@ test('多章节单文件：正文按章节分节，各章同题型不再混在�
   const texts = paragraphTexts(children);
 
   assert.equal(texts[0], '学生学习页面 - 2 个章节');
-  assert.deepEqual(chapterHeadings(children), ['导论1', '第一章 马克思主义']);
+  // 扁平目录（没有章信息）：退回「第 N 章 名字」单级标题
+  assert.deepEqual(chapterHeadings(children), ['第 1 章 导论1', '第一章 马克思主义']);
   // 每章各自出现一次题型大题头（此前两章的单选会被合并成一个大题）
   assert.equal(texts.filter((text) => text.startsWith('一、单项选择题')).length, 2);
   // 两个章节的题干落在各自的分节区间里
-  const firstHeading = texts.indexOf('导论1');
+  const firstHeading = texts.indexOf('第 1 章 导论1');
   const secondHeading = texts.indexOf('第一章 马克思主义');
   const firstStem = texts.findIndex((text) => text.includes('题干q1'));
   const thirdStem = texts.findIndex((text) => text.includes('题干q3'));
@@ -186,15 +202,19 @@ test('多章节单文件：题型序号按章重排，大题头字号小于章�
 test('按章节拆分：每个文件只装一章，标题即章节名', async () => {
   const result = resultOf(CHAPTERS, '学生学习页面 - 2 个章节');
 
-  const plans = planWordDocuments(result, {
-    format: 'word',
-    filename: '卷子',
-    withAnswers: false,
-    withWrong: false,
-    shuffle: false,
-    bankImport: false,
-    splitByChapter: true,
-  });
+  const plans = planExportDocuments(
+    result,
+    {
+      format: 'word',
+      filename: '卷子',
+      withAnswers: false,
+      withWrong: false,
+      shuffle: false,
+      bankImport: false,
+      splitByChapter: true,
+    },
+    '.docx',
+  ).documents;
   assert.equal(plans.length, 2);
 
   for (const plan of plans) {
@@ -226,7 +246,7 @@ test('按章节拆分：每个文件只装一章，标题即章节名', async ()
   assert.ok(!firstTexts.some((text) => text.includes('题干q3')));
 });
 
-test('答案页与错题页也按章节分节', async () => {
+test('答案页与错题页跟在各自的章之后（章 1 题目 → 章 1 答案 → 章 1 错题 → 章 2 …）', async () => {
   // 两章各留一道错题，错题汇总页才会生成
   const wrongChapters = [
     chapter('c1', '导论1', [
@@ -247,26 +267,101 @@ test('答案页与错题页也按章节分节', async () => {
     splitByChapter: false,
   });
 
-  // 答案页两章各有小标题，错题页同样；题目页那两处是 HEADING_2 大标题
+  // 答案页 / 错题页里的章标签按「章 1 答案、章 1 错题、章 2 答案、章 2 错题」排列
   assert.deepEqual(chapterLabels(children), [
-    '导论1',
+    '第 1 章 导论1',
+    '第 1 章 导论1',
     '第一章 马克思主义',
-    '导论1',
     '第一章 马克思主义',
   ]);
-  assert.deepEqual(chapterHeadings(children), ['导论1', '第一章 马克思主义']);
-  assert.equal(paragraphTexts(children).filter((text) => text === '错题汇总').length, 1);
-  // 题号在正文 / 答案页 / 错题页三处都按章重新从 1 数起
+  // 题目页的章标题仍是 HEADING_2 大标题
+  assert.deepEqual(chapterHeadings(children), ['第 1 章 导论1', '第一章 马克思主义']);
+  // 两章各有一页错题汇总，而不是全篇只有末尾一页
+  assert.equal(paragraphTexts(children).filter((text) => text === '错题汇总').length, 2);
+  // 题号在正文 / 答案 / 错题三处都按章重新从 1 数起
   assert.deepEqual(numberPrefixes(children), [
     '1. ',
     '2. ',
     '1. ',
-    '1. ',
     '2. ',
     '1. ',
     '1. ',
     '1. ',
+    '1. ',
   ]);
+  // 每章：题目 →（分页）答案 →（分页）错题；换章再分页。共 1 + 1 + 1 + 1 + 1 = 5 次
+  assert.equal(pageBreakCount(children), 5);
+});
+
+test('两级目录：章标题（Heading2）、小节标题（Heading3）、题型头（24）三层字号递减', async () => {
+  const result = resultOf(NESTED_CHAPTERS, '思想道德与法治 - 3 个章节');
+
+  const children = await renderDocument(result, {
+    format: 'word',
+    filename: '卷子',
+    withAnswers: true,
+    withWrong: false,
+    shuffle: false,
+    bankImport: false,
+    splitByChapter: false,
+  });
+
+  // 章标题只用页面的章号拼，小节标题用页面的小节编号
+  assert.deepEqual(chapterHeadings(children), [
+    '第 1 章 担当复兴大任 成就时代新人',
+    '第 2 章 领悟人生真谛 把握人生方向',
+  ]);
+  assert.deepEqual(sectionHeadings(children), [
+    '1.1 如何认识新方位',
+    '1.2 如何认识新使命',
+    '2.1 为什么要思考人生问题',
+  ]);
+  // 题号按小节重新从 1 数起
+  assert.deepEqual(numberPrefixes(children), ['1. ', '1. ', '1. ', '1. ', '1. ', '1. ']);
+
+  const sizeOf = (heading) =>
+    children.find((child) => child instanceof Paragraph && child.heading === heading).children[0]
+      .size;
+  const typeRun = children.find(
+    (child) => child instanceof Paragraph && textOf(child).startsWith('一、单项选择题'),
+  ).children[0];
+  assert.equal(sizeOf('Heading2'), 28);
+  assert.equal(sizeOf('Heading3'), 26);
+  assert.equal(typeRun.size, 24);
+
+  // 换章另起一页（第 2 章正文前）、每章的答案页再各分一次页；小节之间不换页，共 3 次
+  assert.equal(pageBreakCount(children), 3);
+});
+
+test('两级目录：按章拆出的文件里只插小节标题，不重复章名', async () => {
+  const result = resultOf(NESTED_CHAPTERS, '思想道德与法治 - 3 个章节');
+
+  const plans = planExportDocuments(
+    result,
+    {
+      format: 'word',
+      filename: '卷子',
+      withAnswers: false,
+      withWrong: false,
+      shuffle: false,
+      bankImport: false,
+      splitByChapter: true,
+    },
+    '.docx',
+  ).documents;
+
+  assert.equal(plans.length, 2);
+  const first = await generateWordBlob(plans[0].title, plans[0].sections, {
+    withAnswers: false,
+    withWrong: false,
+    bankImport: false,
+  });
+  const children = first.sections[0].children;
+
+  // 文件大标题已经是章名，正文里不再插章标题；小节标题照旧
+  assert.deepEqual(chapterHeadings(children), []);
+  assert.deepEqual(sectionHeadings(children), ['1.1 如何认识新方位', '1.2 如何认识新使命']);
+  assert.equal(pageBreakCount(children), 0);
 });
 
 test('题库导入格式：不认章节标题，题目按题型连续排列', async () => {

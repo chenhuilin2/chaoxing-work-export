@@ -1,3 +1,5 @@
+import type { ChapterRef } from './chapter';
+
 export const QUESTION_TYPES = [
   'single-choice',
   'multiple-choice',
@@ -84,9 +86,15 @@ export interface ExtractionStatistics {
   readonly byType: Readonly<Record<QuestionType, number>>;
 }
 
-export interface ChapterExtraction {
+/**
+ * 一次章节提取的结果。
+ *
+ * `title` / `label` / `group` 是目录树里的两级信息（见 domain/chapter.ts）：
+ * 小节编号「1.1」加上所属章，导出时才能拼出「第 1 章 …」+「1.1 …」两级标题。
+ * 老数据（历史记录迁移、扁平目录）没有这两项，导出会退回改动前的「第 N 章 名字」写法。
+ */
+export interface ChapterExtraction extends ChapterRef {
   readonly id: string;
-  readonly title: string;
   readonly questions: readonly Question[];
   readonly typeOrder: readonly QuestionType[];
   readonly statistics: ExtractionStatistics;
@@ -152,9 +160,7 @@ export function deriveTypeOrder(questions: readonly Question[]): QuestionType[] 
   return order;
 }
 
-export function groupQuestions(
-  questions: readonly Question[],
-): Record<QuestionType, Question[]> {
+export function groupQuestions(questions: readonly Question[]): Record<QuestionType, Question[]> {
   const groups: Record<QuestionType, Question[]> = {
     'single-choice': [],
     'multiple-choice': [],

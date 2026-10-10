@@ -104,7 +104,10 @@ export class ChapterExtractionService {
         });
         const chapterExtraction: ChapterExtraction = {
           id: chapter.id,
+          // 两级信息原样带进结果：导出要靠「小节编号 + 所属章」拼标题
           title: chapter.title,
+          label: chapter.label,
+          group: chapter.group,
           questions,
           typeOrder: deriveTypeOrder(questions),
           statistics: buildStatistics(questions),

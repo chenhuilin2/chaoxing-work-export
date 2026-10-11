@@ -78,6 +78,35 @@ export class ChapterLocator {
     return index >= 0 ? index : null;
   }
 
+  /**
+   * 当前激活章节的标识（用户切换章节后会变）。
+   *
+   * 学习通把激活态类挂在**容器 div** 上（`.posCatalog_select.posCatalog_active`），
+   * 容器 id 就是 `cur<chapterId>`，所以先走这条最廉价的路 —— 「切换章节自动提取」
+   * 要按秒轮询它，而完整目录解析里的可见性判定会调 `getClientRects()` 强制重排。
+   */
+  activeKey(): string | null {
+    const quick = this.quickActiveKey();
+    if (quick) return quick;
+
+    // 兜底：老结构的激活类挂在条目自身上，退回完整解析
+    const index = this.activeIndex();
+    if (index === null) return null;
+    const element = this.elements()[index];
+    if (!element) return null;
+    return element.id || element.dataset.chapterId || element.dataset.id || `index-${index}`;
+  }
+
+  private quickActiveKey(): string | null {
+    for (const className of ACTIVE_CLASSES) {
+      const owner = this.root.querySelector<HTMLElement>(`.posCatalog_select.${className}`);
+      if (!owner) continue;
+      const key = owner.id || owner.dataset.chapterId || owner.dataset.id;
+      if (key) return key;
+    }
+    return null;
+  }
+
   activate(index: number): boolean {
     const element = this.elements()[index];
     if (!element) return false;

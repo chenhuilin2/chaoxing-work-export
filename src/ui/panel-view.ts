@@ -148,7 +148,7 @@ function template(): string {
             </label>
             <label class="cwe-switch-row"><span>允许拖动面板</span><input data-setting="enableDrag" type="checkbox"></label>
             <label class="cwe-switch-row"><span>记忆面板位置</span><input data-setting="rememberPanelPosition" type="checkbox"></label>
-            <label class="cwe-switch-row"><span>打开窗口自动提取</span><input data-setting="autoExtractOnLoad" type="checkbox"></label>
+            <label class="cwe-switch-row"><span>进入页面/切换章节自动提取</span><input data-setting="autoExtractOnLoad" type="checkbox"></label>
             <label class="cwe-setting-row cwe-setting-row-split">
               <span class="cwe-setting-label">提取快捷键</span>
               <input class="cwe-input" data-setting="shortcut" placeholder="Ctrl+Shift+E" />

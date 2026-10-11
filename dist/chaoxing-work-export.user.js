@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         超星学习通作业/考试一键提取导出 Word 文档
 // @namespace    https://github.com/chenhuilin2/chaoxing-work-export
-// @version      3.0.24
+// @version      3.0.25
 // @description  TypeScript 重构版：提取学习通作业与考试题目，支持富文本、答案解析、错题、章节批量提取及 Word/TXT/Markdown 导出
 // @author       huilin and contributors
 // @license      GPL-3.0-only
@@ -74,7 +74,7 @@
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.UI_HOST_ID = exports.APP_VERSION = exports.APP_NAME = void 0;
     exports.APP_NAME = 'Chaoxing Work Export';
-    exports.APP_VERSION = '3.0.24';
+    exports.APP_VERSION = '3.0.25';
     exports.UI_HOST_ID = 'chaoxing-work-export-root';
 });
 define("domain/export-options", ["require", "exports"], function (require, exports) {
@@ -285,7 +285,7 @@ define("domain/settings", ["require", "exports"], function (require, exports) {
         enableDrag: false,
         rememberPanelPosition: true,
         panelPosition: null,
-        // 默认打开：进入作业/考试/章节练习页即自动提取一次（用户可在设置里关掉）
+        // 默认打开：进入作业/考试/章节练习页自动提取，切换章节后再自动提取一次（用户可在设置里关掉）
         autoExtractOnLoad: true,
     };
 });
@@ -6872,6 +6872,37 @@ define("application/chapter-locator", ["require", "exports", "utils/text"], func
             const index = this.elements().findIndex((element) => this.isActive(element));
             return index >= 0 ? index : null;
         }
+        /**
+         * 当前激活章节的标识（用户切换章节后会变）。
+         *
+         * 学习通把激活态类挂在**容器 div** 上（`.posCatalog_select.posCatalog_active`），
+         * 容器 id 就是 `cur<chapterId>`，所以先走这条最廉价的路 —— 「切换章节自动提取」
+         * 要按秒轮询它，而完整目录解析里的可见性判定会调 `getClientRects()` 强制重排。
+         */
+        activeKey() {
+            const quick = this.quickActiveKey();
+            if (quick)
+                return quick;
+            // 兜底：老结构的激活类挂在条目自身上，退回完整解析
+            const index = this.activeIndex();
+            if (index === null)
+                return null;
+            const element = this.elements()[index];
+            if (!element)
+                return null;
+            return element.id || element.dataset.chapterId || element.dataset.id || `index-${index}`;
+        }
+        quickActiveKey() {
+            for (const className of ACTIVE_CLASSES) {
+                const owner = this.root.querySelector(`.posCatalog_select.${className}`);
+                if (!owner)
+                    continue;
+                const key = owner.id || owner.dataset.chapterId || owner.dataset.id;
+                if (key)
+                    return key;
+            }
+            return null;
+        }
         activate(index) {
             const element = this.elements()[index];
             if (!element)
@@ -7454,6 +7485,10 @@ define("application/chapter-extraction-service", ["require", "exports", "domain/
         }
         listChapters() {
             return this.locator.list();
+        }
+        /** 当前激活章节的标识；供「切换章节自动提取」检测章节是否已被切走 */
+        activeChapterKey() {
+            return this.locator.activeKey();
         }
         async extractSelected(selectedIndexes, onProgress = () => undefined) {
             const chapters = this.locator.list();
@@ -8128,7 +8163,7 @@ define("ui/panel-view", ["require", "exports", "app-config", "domain/chapter", "
             </label>
             <label class="cwe-switch-row"><span>允许拖动面板</span><input data-setting="enableDrag" type="checkbox"></label>
             <label class="cwe-switch-row"><span>记忆面板位置</span><input data-setting="rememberPanelPosition" type="checkbox"></label>
-            <label class="cwe-switch-row"><span>打开窗口自动提取</span><input data-setting="autoExtractOnLoad" type="checkbox"></label>
+            <label class="cwe-switch-row"><span>进入页面/切换章节自动提取</span><input data-setting="autoExtractOnLoad" type="checkbox"></label>
             <label class="cwe-setting-row cwe-setting-row-split">
               <span class="cwe-setting-label">提取快捷键</span>
               <input class="cwe-input" data-setting="shortcut" placeholder="Ctrl+Shift+E" />
@@ -8847,7 +8882,64 @@ define("ui/panel-view", ["require", "exports", "app-config", "domain/chapter", "
     }
     exports.PanelView = PanelView;
 });
-define("application/app-controller", ["require", "exports", "extractors/dom-diagnostics", "infrastructure/clipboard-service", "infrastructure/download-service", "infrastructure/history-repository", "infrastructure/logger", "infrastructure/settings-repository", "utils/async", "app-config", "utils/hash", "utils/dom", "utils/shortcut", "utils/text", "application/extraction-service", "application/task-tab-locator"], function (require, exports, dom_diagnostics_1, clipboard_service_1, download_service_1, history_repository_1, logger_2, settings_repository_1, async_4, app_config_2, hash_6, dom_10, shortcut_3, text_10, extraction_service_2, task_tab_locator_2) {
+define("application/chapter-change-watcher", ["require", "exports"], function (require, exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.ChapterChangeWatcher = void 0;
+    /**
+     * 「当前章节」变化检测，供「切换章节自动提取」使用。
+     *
+     * 学习通切章走 `getTeacherAjax()`：先把 `#mainid` 清空重建，再把激活态类移到新的
+     * `#coursetree .posCatalog_select` 上 —— **URL 不变、页面不刷新**，脚本也不会重新注入，
+     * 所以「进入页面自动提取」那一次之后再没有任何触发点，只能在 DOM 侧观察。
+     *
+     * 判定用的指纹是「激活章节的标识」（容器 id 即 `cur<chapterId>`），而不是「DOM 是否变化」：
+     * 章节页每几秒就有自己的 DOM 变动（进度上报、提示气泡），按 DOM 变化触发会疯狂误提取。
+     *
+     * 两条边界：
+     * - 读不到标识时（不在章节页 / 目录树还没渲染）既不更新基线也不上报，短暂读空不会被当成切章；
+     * - 首次读到标识只用来建立基线，因此「进入页面后目录树才渲染出来」不会被当成切章。
+     */
+    class ChapterChangeWatcher {
+        constructor(readKey) {
+            this.readKey = readKey;
+            this.baseline = null;
+        }
+        /** 把当前章节记为基线：用于跳过「自己触发的切换」（批量提取逐章遍历） */
+        reset() {
+            this.baseline = this.read();
+        }
+        /** 当前章节标识；读不到（或读取失败）返回 null */
+        currentKey() {
+            return this.read();
+        }
+        /** 同步一次；确认已经切到别的章节时返回 true（同一章节或读不到时返回 false） */
+        poll() {
+            const key = this.read();
+            if (key === null)
+                return false;
+            if (this.baseline === null) {
+                this.baseline = key;
+                return false;
+            }
+            if (key === this.baseline)
+                return false;
+            this.baseline = key;
+            return true;
+        }
+        read() {
+            try {
+                return this.readKey();
+            }
+            catch {
+                // 宿主页面结构异常不应打断轮询
+                return null;
+            }
+        }
+    }
+    exports.ChapterChangeWatcher = ChapterChangeWatcher;
+});
+define("application/app-controller", ["require", "exports", "extractors/dom-diagnostics", "infrastructure/clipboard-service", "infrastructure/download-service", "infrastructure/history-repository", "infrastructure/logger", "infrastructure/settings-repository", "utils/async", "app-config", "utils/hash", "utils/dom", "utils/shortcut", "utils/text", "application/chapter-change-watcher", "application/extraction-service", "application/task-tab-locator"], function (require, exports, dom_diagnostics_1, clipboard_service_1, download_service_1, history_repository_1, logger_2, settings_repository_1, async_4, app_config_2, hash_6, dom_10, shortcut_3, text_10, chapter_change_watcher_1, extraction_service_2, task_tab_locator_2) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.AppController = void 0;
@@ -8855,6 +8947,11 @@ define("application/app-controller", ["require", "exports", "extractors/dom-diag
     const QUESTION_SETTLE_TIMEOUT_MS = 12000;
     // 页面没有题目卡时不再空等：只留出页面自身渲染完成的时间（与原 4.5s 等待的容错度一致）
     const PAGE_IDLE_TIMEOUT_MS = 4500;
+    // 章节切换的轮询间隔：切章是 AJAX 局部刷新（URL 不变），只能靠轮询发现；
+    // 每次轮询只做一次 querySelector，开销可忽略
+    const CHAPTER_POLL_INTERVAL_MS = 500;
+    // 确认切章后等这么久再看任务卡栏：新章节的卡片页（含任务卡栏）是异步重建的
+    const CHAPTER_TAB_SETTLE_MS = 600;
     class AppController {
         constructor(view, extractionService, chapterService, exportService, frameBridge, taskTabs = new task_tab_locator_2.TaskTabLocator(), settingsRepository = new settings_repository_1.SettingsRepository(), historyRepository = new history_repository_1.HistoryRepository(), downloadService = new download_service_1.DownloadService(), clipboardService = new clipboard_service_1.ClipboardService()) {
             this.view = view;
@@ -8869,6 +8966,13 @@ define("application/app-controller", ["require", "exports", "extractors/dom-diag
             this.clipboardService = clipboardService;
             this.currentResult = null;
             this.observer = null;
+            this.chapterWatcher = null;
+            this.chapterPollTimer = null;
+            /** >0 表示正处于批量章节提取中：期间的章节切换是我们自己点的，不能触发自动提取 */
+            this.chapterWatchSuspend = 0;
+            /** 提取进行中；期间到来的自动提取请求合并成一次待办，结束后补跑 */
+            this.extracting = false;
+            this.pendingAutoExtract = false;
             this.logger = new logger_2.Logger();
             this.refreshChaptersDebounced = (0, async_4.debounce)(() => this.refreshChapterAvailability(), 700);
             this.onShortcut = (event) => {
@@ -8914,31 +9018,97 @@ define("application/app-controller", ["require", "exports", "extractors/dom-diag
                 this.observer = new MutationObserver(() => this.refreshChaptersDebounced());
                 this.observer.observe(document.body, { childList: true, subtree: true });
             }
-            // 自动提取：进入页面时仅提取一次，后续页面变化不再自动提取
+            // 自动提取：进入页面时提取一次
             if (this.settings.autoExtractOnLoad) {
                 window.setTimeout(() => void this.extractCurrent(), 800);
             }
+            this.startChapterWatch();
+        }
+        /**
+         * 开始监听章节切换。
+         *
+         * 章节练习页切章是 AJAX 局部刷新（`getTeacherAjax()` 重建 `#mainid`），URL 不变、
+         * 脚本不重跑，所以「进入页面提取一次」之后就没有触发点了 —— 这里补上：切到新章节后
+         * 自动提取一次当前章节的题目，用户不必再手点按钮。
+         */
+        startChapterWatch() {
+            this.chapterWatcher = new chapter_change_watcher_1.ChapterChangeWatcher(() => this.chapterService.activeChapterKey());
+            // 以「进入页面时的章节」为基线，避免把首次渲染出来的目录树当成切章
+            this.chapterWatcher.reset();
+            this.chapterPollTimer = window.setInterval(() => this.detectChapterChange(), CHAPTER_POLL_INTERVAL_MS);
+        }
+        /**
+         * 轮询到章节已被切换时自动提取当前章节的题目。
+         *
+         * 新章节没有题目卡时直接跳过：纯视频/文档章节的题目永远不会出现，没必要空等十几秒
+         * 再报一次「未识别到题目」。任务卡栏不存在时（非知识卡片页）不跳过，照常尝试。
+         */
+        detectChapterChange() {
+            if (!this.chapterWatcher?.poll())
+                return;
+            if (!this.settings.autoExtractOnLoad)
+                return;
+            if (this.chapterWatchSuspend > 0)
+                return;
+            window.setTimeout(() => {
+                if (this.chapterWatchSuspend > 0)
+                    return;
+                const tabs = this.taskTabs;
+                if (tabs.present() && tabs.questionTabIndex() === null) {
+                    this.logger.debug('Chapter has no question tab, skip auto extraction');
+                    return;
+                }
+                void this.extractCurrent({
+                    previousFingerprint: this.currentFingerprint(),
+                    quiet: true,
+                });
+            }, CHAPTER_TAB_SETTLE_MS);
+        }
+        /** 上一份结果的指纹：切章后用它确认「读到的确实不是上一章残留」 */
+        currentFingerprint() {
+            return this.currentResult ? this.extractionService.fingerprint(this.currentResult) : undefined;
         }
         stop() {
             window.removeEventListener('keydown', this.onShortcut, true);
             this.observer?.disconnect();
             this.observer = null;
+            if (this.chapterPollTimer !== null) {
+                window.clearInterval(this.chapterPollTimer);
+                this.chapterPollTimer = null;
+            }
+            this.chapterWatcher = null;
             this.frameBridge.stop();
             this.view.destroy();
         }
-        async extractCurrent() {
+        async extractCurrent(options = {}) {
+            // 提取期间又被触发（用户连点章节、或快捷键）：合并成一次待办，等这次结束后补跑，
+            // 避免两次提取互相抢任务卡、抢 DOM
+            if (this.extracting) {
+                this.pendingAutoExtract = true;
+                return;
+            }
+            this.extracting = true;
             this.view.setBusy('extract', '正在识别当前页面和已加载的 iframe…');
             try {
                 this.frameBridge.requestRefresh();
-                this.acceptResult(await this.resolveCurrentResult());
+                this.acceptResult(await this.resolveCurrentResult(options));
             }
             catch (error) {
                 this.logger.warn('Extraction failed', error);
-                this.view.setStatus((0, text_10.humanizeError)(error), 'error');
+                // 后台自动触发时用户并没有发出请求，「未识别到题目」是正常情况而非错误
+                this.view.setStatus(options.quiet ? '当前章节未识别到题目' : (0, text_10.humanizeError)(error), options.quiet ? 'warning' : 'error');
             }
             finally {
                 this.view.setBusy(null);
                 this.refreshChapterAvailability();
+                this.extracting = false;
+                if (this.pendingAutoExtract) {
+                    this.pendingAutoExtract = false;
+                    void this.extractCurrent({
+                        previousFingerprint: this.currentFingerprint(),
+                        quiet: true,
+                    });
+                }
             }
         }
         /**
@@ -8950,9 +9120,17 @@ define("application/app-controller", ["require", "exports", "extractors/dom-diag
          * 已经取到题目时也不是立刻收工：答题页会分几批渲染，中途取到的结果可能只有题干、
          * 选项还没补上，这类「选择题缺选项」的结果要交给采样等待补齐。
          */
-        async resolveCurrentResult() {
+        async resolveCurrentResult(options = {}) {
+            const previousFingerprint = options.previousFingerprint;
             const immediate = this.extractionService.extractAccessibleDocuments();
-            if (immediate && immediate.questions.length > 0 && (0, extraction_service_2.incompleteChoiceCount)(immediate) === 0) {
+            // 指纹与上一份结果一致，说明新章节的内容还没进 DOM，此刻读到的仍是上一章残留的题目
+            const stale = previousFingerprint !== undefined &&
+                immediate !== null &&
+                this.extractionService.fingerprint(immediate) === previousFingerprint;
+            if (!stale &&
+                immediate &&
+                immediate.questions.length > 0 &&
+                (0, extraction_service_2.incompleteChoiceCount)(immediate) === 0) {
                 return immediate;
             }
             const guard = new task_tab_locator_2.QuestionTabGuard(this.taskTabs);
@@ -8960,6 +9138,7 @@ define("application/app-controller", ["require", "exports", "extractors/dom-diag
             const timeoutMs = this.taskTabs.questionTabIndex() === null ? PAGE_IDLE_TIMEOUT_MS : QUESTION_SETTLE_TIMEOUT_MS;
             const settled = await this.extractionService.settleQuestions({
                 timeoutMs,
+                previousFingerprint,
                 repair: () => {
                     if (guard.ensure()) {
                         this.view.setStatus('已自动切换到题目所在任务卡，正在等待题目加载…', 'neutral');
@@ -8985,6 +9164,10 @@ define("application/app-controller", ["require", "exports", "extractors/dom-diag
                 return;
             }
             this.view.setBusy('chapters', `准备提取 ${indexes.length} 个章节…`);
+            // 批量提取会自己逐章切换章节，期间的切章不能被当成「用户切章」而触发自动提取，
+            // 否则每切一章都会再抢一次任务卡，与批量流程互相打断
+            this.chapterWatchSuspend += 1;
+            this.pendingAutoExtract = false;
             try {
                 const result = await this.chapterService.extractSelected(indexes, (progress) => {
                     this.view.updateChapterProgress(progress);
@@ -8999,6 +9182,9 @@ define("application/app-controller", ["require", "exports", "extractors/dom-diag
             finally {
                 this.view.setBusy(null);
                 this.refreshChapterAvailability();
+                this.chapterWatchSuspend -= 1;
+                // 批量结束会把章节切回原处，重新对准基线，避免这次遍历被记成一次「切章」
+                this.chapterWatcher?.reset();
             }
         }
         acceptResult(result) {

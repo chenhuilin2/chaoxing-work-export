@@ -43,6 +43,11 @@ export class ChapterExtractionService {
     return this.locator.list();
   }
 
+  /** 当前激活章节的标识；供「切换章节自动提取」检测章节是否已被切走 */
+  activeChapterKey(): string | null {
+    return this.locator.activeKey();
+  }
+
   async extractSelected(
     selectedIndexes: readonly number[],
     onProgress: ChapterProgressListener = () => undefined,

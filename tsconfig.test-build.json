@@ -23,6 +23,7 @@
     "src/infrastructure/settings-repository.ts",
     "src/ui/**/*.ts",
     "src/utils/**/*.ts",
+    "src/application/chapter-change-watcher.ts",
     "src/application/chapter-extraction-service.ts",
     "src/application/chapter-locator.ts",
     "src/application/extraction-service.ts",

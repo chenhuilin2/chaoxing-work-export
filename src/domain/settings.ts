@@ -49,6 +49,6 @@ export const DEFAULT_SETTINGS: UserSettings = {
   enableDrag: false,
   rememberPanelPosition: true,
   panelPosition: null,
-  // 默认打开：进入作业/考试/章节练习页即自动提取一次（用户可在设置里关掉）
+  // 默认打开：进入作业/考试/章节练习页自动提取，切换章节后再自动提取一次（用户可在设置里关掉）
   autoExtractOnLoad: true,
 };

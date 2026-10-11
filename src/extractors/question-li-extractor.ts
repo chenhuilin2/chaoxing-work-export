@@ -1,7 +1,7 @@
 import type { Question } from '../domain/question';
 import { parseLeadingNumber, textOf } from '../utils/dom';
 import { hasExplicitWrongMarker } from './answer-comparison';
-import { extractAnalysis, extractCorrectAnswer, extractUserAnswer } from './common-answer';
+import { extractAnalysis, extractUserAnswer, resolveCorrectAnswer } from './common-answer';
 import type { ExtractorContext, QuestionExtractor } from './contracts';
 import { parseOptions } from './option-parser';
 import { createQuestion } from './question-factory';
@@ -40,7 +40,7 @@ export class QuestionLiExtractor implements QuestionExtractor {
           '.option-list > li',
           '.options > li',
         ]),
-        correctAnswer: extractCorrectAnswer(container),
+        correctAnswer: resolveCorrectAnswer(container),
         userAnswer: extractUserAnswer(container),
         analysis: extractAnalysis(container),
         explicitWrong: hasExplicitWrongMarker(container),

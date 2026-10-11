@@ -1,7 +1,7 @@
 import type { Question } from '../domain/question';
 import { parseLeadingNumber, textOf } from '../utils/dom';
 import { hasExplicitWrongMarker } from './answer-comparison';
-import { extractAnalysis, extractCorrectAnswer, extractUserAnswer } from './common-answer';
+import { extractAnalysis, extractUserAnswer, resolveCorrectAnswer } from './common-answer';
 import type { ExtractorContext, QuestionExtractor } from './contracts';
 import { parseOptions } from './option-parser';
 import { createQuestion } from './question-factory';
@@ -35,12 +35,8 @@ export class MarkItemExtractor implements QuestionExtractor {
           type,
           typeMeta: textOf(container.querySelector('.colorShallow')) || undefined,
           stem: stem.content,
-          options: parseOptions(container, [
-            '.mark_letter > li',
-            '.mark_letter li',
-            '.answerBg',
-          ]),
-          correctAnswer: extractCorrectAnswer(container),
+          options: parseOptions(container, ['.mark_letter > li', '.mark_letter li', '.answerBg']),
+          correctAnswer: resolveCorrectAnswer(container),
           userAnswer: extractUserAnswer(container),
           analysis: extractAnalysis(container),
           explicitWrong: hasExplicitWrongMarker(container),

@@ -113,6 +113,66 @@ export function inferCorrectAnswerFromGrading(
   userAnswer: RichContent,
 ): RichContent {
   if (isRichContentEmpty(userAnswer)) return [];
-  if (!container.querySelector('.marking_dui')) return [];
+  if (!hasGradingCorrectMarker(container)) return [];
   return userAnswer;
+}
+
+/**
+ * 判定该题是否被批阅为「全对」。
+ *
+ * 学习通各版本的答对图标类名不统一（章节测验是 `.marking_dui`，试卷批阅页还有
+ * `.marking_dui_true`、`.icon_dui` 等变体），逐个列举容易漏。这里的策略是：
+ * 先认明确的类名，再用「名字里含 dui / correct / right 且不含 cuo / wrong」兜底，
+ * **同时排除部分正确与错误标记**，宁可漏回填也不要把错答案当成标准答案。
+ *
+ * 注意：`.marking_cuo`（错误）与 `.marking_bandui`（部分正确）优先级最高，
+ * 只要出现就判定为「非全对」，避免一个容器里同时渲染多次作答记录时误判。
+ */
+export function hasGradingCorrectMarker(container: Element): boolean {
+  if (container.querySelector('.marking_cuo, .marking_bandui')) return false;
+
+  const direct = container.querySelector(
+    [
+      '.marking_dui',
+      '.marking_dui_true',
+      '.icon_dui',
+      '.icon-dui',
+      '[data-result="right"]',
+      '[data-result="correct"]',
+      '[data-correct="true"]',
+      // 2026 版试卷批阅页把批阅结果同时写在 aria-label 上
+      // （`<span class="marking_dui" aria-label="答案正确">`），类名被改时这层语义标记通常还在
+      '[aria-label*="答案正确"]',
+      '[aria-label*="回答正确"]',
+      '[aria-label*="完全正确"]',
+    ].join(','),
+  );
+  if (direct) return true;
+
+  // 兜底：class 名里带「dui / correct / right」的答对图标。
+  //
+  // 必须按**单个 class 词**匹配并要求词边界，不能拿整串 class 做子串匹配 —— 学习通布局里
+  // `marginRight40`（见试卷批阅页的 `.mark_key > .colorDeep.marginRight40`）满地都是，
+  // 子串匹配会把「未批阅」的题目误判成答对，进而把「我的答案」当正确答案回填。
+  return Array.from(container.querySelectorAll<HTMLElement>('[class]')).some((element) => {
+    const className = element.className;
+    if (typeof className !== 'string') return false;
+    if (/(cuo|wrong|bandui|error|fail)/i.test(className)) return false;
+    return className
+      .split(/\s+/)
+      .some((token) => /(^|[-_])(dui|correct|right|true)([-_]|$)/i.test(token));
+  });
+}
+
+/**
+ * 取该题的正确答案：优先读页面上的「正确答案」文本，读不到时按批阅结果推断。
+ *
+ * 所有提取器都应当用这个函数而不是直接调 `extractCorrectAnswer` —— 批阅结果页
+ * （试卷批阅 `.mark_item .questionLi`、章节测验 `.questionLi`、通用容器等）本身
+ * 不含正确答案文本，漏接回填会让整份「答案汇总」变成「（未找到答案）」。
+ */
+export function resolveCorrectAnswer(container: Element): RichContent {
+  const direct = extractCorrectAnswer(container);
+  if (!isRichContentEmpty(direct)) return direct;
+  return inferCorrectAnswerFromGrading(container, extractUserAnswer(container));
 }

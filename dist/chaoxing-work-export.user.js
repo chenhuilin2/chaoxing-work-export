@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         超星学习通作业/考试一键提取导出 Word 文档
 // @namespace    https://github.com/chenhuilin2/chaoxing-work-export
-// @version      3.0.21
+// @version      3.0.23
 // @description  TypeScript 重构版：提取学习通作业与考试题目，支持富文本、答案解析、错题、章节批量提取及 Word/TXT/Markdown 导出
 // @author       huilin and contributors
 // @license      GPL-3.0-only
@@ -74,7 +74,7 @@
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.UI_HOST_ID = exports.APP_VERSION = exports.APP_NAME = void 0;
     exports.APP_NAME = 'Chaoxing Work Export';
-    exports.APP_VERSION = '3.0.21';
+    exports.APP_VERSION = '3.0.23';
     exports.UI_HOST_ID = 'chaoxing-work-export-root';
 });
 define("domain/export-options", ["require", "exports"], function (require, exports) {
@@ -3057,6 +3057,8 @@ define("extractors/common-answer", ["require", "exports", "utils/dom", "extracto
     exports.extractUserAnswer = extractUserAnswer;
     exports.extractAnalysis = extractAnalysis;
     exports.inferCorrectAnswerFromGrading = inferCorrectAnswerFromGrading;
+    exports.hasGradingCorrectMarker = hasGradingCorrectMarker;
+    exports.resolveCorrectAnswer = resolveCorrectAnswer;
     const CORRECT_SELECTORS = [
         '.mark_answer .mark_key .colorGreen .stuAnswerContent',
         '.mark_answer .mark_key .colorGreen',
@@ -3147,9 +3149,68 @@ define("extractors/common-answer", ["require", "exports", "utils/dom", "extracto
     function inferCorrectAnswerFromGrading(container, userAnswer) {
         if ((0, rich_content_3.isRichContentEmpty)(userAnswer))
             return [];
-        if (!container.querySelector('.marking_dui'))
+        if (!hasGradingCorrectMarker(container))
             return [];
         return userAnswer;
+    }
+    /**
+     * 判定该题是否被批阅为「全对」。
+     *
+     * 学习通各版本的答对图标类名不统一（章节测验是 `.marking_dui`，试卷批阅页还有
+     * `.marking_dui_true`、`.icon_dui` 等变体），逐个列举容易漏。这里的策略是：
+     * 先认明确的类名，再用「名字里含 dui / correct / right 且不含 cuo / wrong」兜底，
+     * **同时排除部分正确与错误标记**，宁可漏回填也不要把错答案当成标准答案。
+     *
+     * 注意：`.marking_cuo`（错误）与 `.marking_bandui`（部分正确）优先级最高，
+     * 只要出现就判定为「非全对」，避免一个容器里同时渲染多次作答记录时误判。
+     */
+    function hasGradingCorrectMarker(container) {
+        if (container.querySelector('.marking_cuo, .marking_bandui'))
+            return false;
+        const direct = container.querySelector([
+            '.marking_dui',
+            '.marking_dui_true',
+            '.icon_dui',
+            '.icon-dui',
+            '[data-result="right"]',
+            '[data-result="correct"]',
+            '[data-correct="true"]',
+            // 2026 版试卷批阅页把批阅结果同时写在 aria-label 上
+            // （`<span class="marking_dui" aria-label="答案正确">`），类名被改时这层语义标记通常还在
+            '[aria-label*="答案正确"]',
+            '[aria-label*="回答正确"]',
+            '[aria-label*="完全正确"]',
+        ].join(','));
+        if (direct)
+            return true;
+        // 兜底：class 名里带「dui / correct / right」的答对图标。
+        //
+        // 必须按**单个 class 词**匹配并要求词边界，不能拿整串 class 做子串匹配 —— 学习通布局里
+        // `marginRight40`（见试卷批阅页的 `.mark_key > .colorDeep.marginRight40`）满地都是，
+        // 子串匹配会把「未批阅」的题目误判成答对，进而把「我的答案」当正确答案回填。
+        return Array.from(container.querySelectorAll('[class]')).some((element) => {
+            const className = element.className;
+            if (typeof className !== 'string')
+                return false;
+            if (/(cuo|wrong|bandui|error|fail)/i.test(className))
+                return false;
+            return className
+                .split(/\s+/)
+                .some((token) => /(^|[-_])(dui|correct|right|true)([-_]|$)/i.test(token));
+        });
+    }
+    /**
+     * 取该题的正确答案：优先读页面上的「正确答案」文本，读不到时按批阅结果推断。
+     *
+     * 所有提取器都应当用这个函数而不是直接调 `extractCorrectAnswer` —— 批阅结果页
+     * （试卷批阅 `.mark_item .questionLi`、章节测验 `.questionLi`、通用容器等）本身
+     * 不含正确答案文本，漏接回填会让整份「答案汇总」变成「（未找到答案）」。
+     */
+    function resolveCorrectAnswer(container) {
+        const direct = extractCorrectAnswer(container);
+        if (!(0, rich_content_3.isRichContentEmpty)(direct))
+            return direct;
+        return inferCorrectAnswerFromGrading(container, extractUserAnswer(container));
     }
 });
 define("utils/hash", ["require", "exports"], function (require, exports) {
@@ -3393,7 +3454,8 @@ define("extractors/generic-exercise-extractor", ["require", "exports", "utils/do
         }
         extract(context) {
             const containers = (0, array_1.uniqueBy)((0, dom_3.allMatches)(context.root, CONTAINER_SELECTORS), (element) => {
-                return element.getAttribute('data-question-id') ?? `${element.tagName}:${(0, dom_3.textOf)(element).slice(0, 80)}`;
+                return (element.getAttribute('data-question-id') ??
+                    `${element.tagName}:${(0, dom_3.textOf)(element).slice(0, 80)}`);
             });
             const questions = [];
             for (const container of containers) {
@@ -3414,7 +3476,7 @@ define("extractors/generic-exercise-extractor", ["require", "exports", "utils/do
                         '.Zy_ulTop > li',
                         'label.option',
                     ]),
-                    correctAnswer: (0, common_answer_1.extractCorrectAnswer)(container),
+                    correctAnswer: (0, common_answer_1.resolveCorrectAnswer)(container),
                     userAnswer: (0, common_answer_1.extractUserAnswer)(container),
                     analysis: (0, common_answer_1.extractAnalysis)(container),
                     explicitWrong: (0, answer_comparison_2.hasExplicitWrongMarker)(container),
@@ -3458,12 +3520,8 @@ define("extractors/mark-item-extractor", ["require", "exports", "utils/dom", "ex
                         type,
                         typeMeta: (0, dom_4.textOf)(container.querySelector('.colorShallow')) || undefined,
                         stem: stem.content,
-                        options: (0, option_parser_3.parseOptions)(container, [
-                            '.mark_letter > li',
-                            '.mark_letter li',
-                            '.answerBg',
-                        ]),
-                        correctAnswer: (0, common_answer_2.extractCorrectAnswer)(container),
+                        options: (0, option_parser_3.parseOptions)(container, ['.mark_letter > li', '.mark_letter li', '.answerBg']),
+                        correctAnswer: (0, common_answer_2.resolveCorrectAnswer)(container),
                         userAnswer: (0, common_answer_2.extractUserAnswer)(container),
                         analysis: (0, common_answer_2.extractAnalysis)(container),
                         explicitWrong: (0, answer_comparison_3.hasExplicitWrongMarker)(container),
@@ -3575,7 +3633,7 @@ define("extractors/question-li-extractor", ["require", "exports", "utils/dom", "
                         '.option-list > li',
                         '.options > li',
                     ]),
-                    correctAnswer: (0, common_answer_3.extractCorrectAnswer)(container),
+                    correctAnswer: (0, common_answer_3.resolveCorrectAnswer)(container),
                     userAnswer: (0, common_answer_3.extractUserAnswer)(container),
                     analysis: (0, common_answer_3.extractAnalysis)(container),
                     explicitWrong: (0, answer_comparison_4.hasExplicitWrongMarker)(container),
@@ -3593,7 +3651,7 @@ define("extractors/question-li-extractor", ["require", "exports", "utils/dom", "
     }
     exports.QuestionLiExtractor = QuestionLiExtractor;
 });
-define("extractors/timu-extractor", ["require", "exports", "utils/dom", "extractors/answer-comparison", "extractors/common-answer", "extractors/option-parser", "extractors/question-factory", "extractors/question-stem", "extractors/question-type", "extractors/rich-content"], function (require, exports, dom_6, answer_comparison_5, common_answer_4, option_parser_5, question_factory_4, question_stem_4, question_type_4, rich_content_6) {
+define("extractors/timu-extractor", ["require", "exports", "utils/dom", "extractors/answer-comparison", "extractors/common-answer", "extractors/option-parser", "extractors/question-factory", "extractors/question-stem", "extractors/question-type"], function (require, exports, dom_6, answer_comparison_5, common_answer_4, option_parser_5, question_factory_4, question_stem_4, question_type_4) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.TiMuExtractor = exports.TIMU_OPTION_SELECTORS = void 0;
@@ -3742,16 +3800,14 @@ define("extractors/timu-extractor", ["require", "exports", "utils/dom", "extract
             const stem = (0, question_stem_4.resolveQuestionStem)(container, title);
             // 「已批阅」视图没有正确答案文本，只有批阅结果图标，拿不到答案时按批阅结果推断
             const userAnswer = (0, common_answer_4.extractUserAnswer)(container);
-            const correctAnswer = (0, common_answer_4.extractCorrectAnswer)(container);
+            const correctAnswer = (0, common_answer_4.resolveCorrectAnswer)(container);
             return (0, question_factory_4.createQuestion)({
                 number: (0, dom_6.parseLeadingNumber)((0, dom_6.textOf)(title.querySelector('i.fl')) || stem.rawText),
                 type,
                 typeMeta: (0, dom_6.textOf)(title.querySelector('.newZy_TItle')) || undefined,
                 stem: stem.content,
                 options: resolveOptions(container),
-                correctAnswer: (0, rich_content_6.isRichContentEmpty)(correctAnswer)
-                    ? (0, common_answer_4.inferCorrectAnswerFromGrading)(container, userAnswer)
-                    : correctAnswer,
+                correctAnswer,
                 userAnswer,
                 analysis: (0, common_answer_4.extractAnalysis)(container),
                 explicitWrong: (0, answer_comparison_5.hasExplicitWrongMarker)(container),
@@ -3814,7 +3870,7 @@ define("extractors/composite-extractor", ["require", "exports", "domain/question
     }
     exports.CompositeExtractor = CompositeExtractor;
 });
-define("extractors/dom-diagnostics", ["require", "exports", "utils/dom", "extractors/composite-extractor", "extractors/cxsecret-decoder", "extractors/option-parser", "extractors/question-stem", "extractors/rich-content", "extractors/timu-extractor"], function (require, exports, dom_7, composite_extractor_1, cxsecret_decoder_2, option_parser_6, question_stem_5, rich_content_7, timu_extractor_2) {
+define("extractors/dom-diagnostics", ["require", "exports", "utils/dom", "extractors/composite-extractor", "extractors/cxsecret-decoder", "extractors/option-parser", "extractors/question-stem", "extractors/rich-content", "extractors/timu-extractor"], function (require, exports, dom_7, composite_extractor_1, cxsecret_decoder_2, option_parser_6, question_stem_5, rich_content_6, timu_extractor_2) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.buildExtractionDiagnostics = buildExtractionDiagnostics;
@@ -3868,7 +3924,7 @@ define("extractors/dom-diagnostics", ["require", "exports", "utils/dom", "extrac
     function readableText(element) {
         if (!element)
             return '';
-        return (0, rich_content_7.richContentToText)((0, rich_content_7.extractRichContent)(element));
+        return (0, rich_content_6.richContentToText)((0, rich_content_6.extractRichContent)(element));
     }
     /** 元素结构速览：标签.类名 > 子元素；深度与节点数都受限，足以看出选项容器在不在 */
     function outline(node, depth, budget) {
@@ -6346,7 +6402,7 @@ define("infrastructure/safe-storage", ["require", "exports"], function (require,
     }
     exports.SafeStorage = SafeStorage;
 });
-define("infrastructure/history-repository", ["require", "exports", "domain/question", "extractors/rich-content", "utils/hash", "infrastructure/safe-storage"], function (require, exports, question_2, rich_content_8, hash_3, safe_storage_1) {
+define("infrastructure/history-repository", ["require", "exports", "domain/question", "extractors/rich-content", "utils/hash", "infrastructure/safe-storage"], function (require, exports, question_2, rich_content_7, hash_3, safe_storage_1) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.HistoryRepository = void 0;
@@ -6393,8 +6449,8 @@ define("infrastructure/history-repository", ["require", "exports", "domain/quest
                 return valid;
         }
         if (typeof value === 'string')
-            return (0, rich_content_8.textContent)(value);
-        return typeof fallback === 'string' ? (0, rich_content_8.textContent)(fallback) : [];
+            return (0, rich_content_7.textContent)(value);
+        return typeof fallback === 'string' ? (0, rich_content_7.textContent)(fallback) : [];
     }
     function legacyOptions(value) {
         if (!Array.isArray(value))
@@ -6405,7 +6461,7 @@ define("infrastructure/history-repository", ["require", "exports", "domain/quest
                 return [
                     {
                         key: match?.[1]?.toUpperCase() ?? String.fromCharCode(65 + index),
-                        content: (0, rich_content_8.textContent)(match?.[2] ?? option),
+                        content: (0, rich_content_7.textContent)(match?.[2] ?? option),
                     },
                 ];
             }

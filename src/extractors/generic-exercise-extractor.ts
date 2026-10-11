@@ -2,7 +2,7 @@ import type { Question } from '../domain/question';
 import { allMatches, parseLeadingNumber, textOf } from '../utils/dom';
 import { uniqueBy } from '../utils/array';
 import { hasExplicitWrongMarker } from './answer-comparison';
-import { extractAnalysis, extractCorrectAnswer, extractUserAnswer } from './common-answer';
+import { extractAnalysis, extractUserAnswer, resolveCorrectAnswer } from './common-answer';
 import type { ExtractorContext, QuestionExtractor } from './contracts';
 import { parseOptions } from './option-parser';
 import { createQuestion } from './question-factory';
@@ -27,9 +27,15 @@ export class GenericExerciseExtractor implements QuestionExtractor {
   }
 
   extract(context: ExtractorContext): readonly Question[] {
-    const containers = uniqueBy(allMatches<Element>(context.root, CONTAINER_SELECTORS), (element) => {
-      return element.getAttribute('data-question-id') ?? `${element.tagName}:${textOf(element).slice(0, 80)}`;
-    });
+    const containers = uniqueBy(
+      allMatches<Element>(context.root, CONTAINER_SELECTORS),
+      (element) => {
+        return (
+          element.getAttribute('data-question-id') ??
+          `${element.tagName}:${textOf(element).slice(0, 80)}`
+        );
+      },
+    );
     const questions: Question[] = [];
 
     for (const container of containers) {
@@ -55,7 +61,7 @@ export class GenericExerciseExtractor implements QuestionExtractor {
           '.Zy_ulTop > li',
           'label.option',
         ]),
-        correctAnswer: extractCorrectAnswer(container),
+        correctAnswer: resolveCorrectAnswer(container),
         userAnswer: extractUserAnswer(container),
         analysis: extractAnalysis(container),
         explicitWrong: hasExplicitWrongMarker(container),

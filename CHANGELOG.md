@@ -1,5 +1,47 @@
 # Changelog
 
+## 3.0.23
+
+### 变更
+
+- **修掉答对图标兜底判定的误判**：3.0.22 的兜底是拿**整串 class 做子串匹配**（`/(dui|correct|right|true)/i`），而试卷批阅页的「我的答案」容器写作 `<span class="colorDeep marginRight40 fl">` —— `marginRight40` 里的 `Right` 会被判成「答对」。学习通的 `marginRight30/40/80` 到处都是，后果是**未批阅的题目**也被用「我的答案」回填成正确答案。
+  - 现在改为**按单个 class 词匹配并要求词边界**：`marginRight40` 不再命中，而 `marking_dui` / `icon-dui` / `ans-dui-icon` / `marking_dui_true` 等既有变体照旧命中。
+  - 判否（`cuo` / `wrong` / `bandui` / `error` / `fail`）仍按整串匹配，保持「宁可漏回填，也不误填」的方向。
+- **批阅结果的识别多一层来源**：新增 `[aria-label*="答案正确"]` / `[aria-label*="回答正确"]` / `[aria-label*="完全正确"]`。2026 版试卷批阅页把结果同时写在 aria-label 上（`<span class="marking_dui" aria-label="答案正确">`），类名被改版换掉时这层语义标记通常还在。
+
+### 说明
+
+- 触发原因是用户提供了该页面的**真实 DOM 片段**（题干 `h3.mark_name > span.qtContent`、选项 `ul.mark_letter.qtDetail > li`、我的答案 `.mark_key > .colorDeep.marginRight40 > span.stuAnswerContent`、批阅图标 `.mark_judge_name > span.marking_dui[aria-label="答案正确"]`）。这段结构已原样固化为测试夹具，此前 `.mark_item .questionLi` 这条模板只有合成夹具覆盖。
+- 真实结构下的**题干仍取 `span.qtContent`**（不含题号 `1.` 与 `(单选题, 0.2 分)`），因此 `question.number` 会是 `undefined` —— 该字段只参与题目指纹去重，导出时的题号是按小节顺序重新编排的，不影响输出。
+
+### 验证
+
+- `tests/graded-answer.test.cjs` 新增 4 例：真实结构全链路（题干/选项/我的答案/正确答案/`isWrong`）、`marginRight40` 不误判（未批阅必须留空）、批阅结果只写 aria-label 时仍识别、真实结构的答错变体留空并计入错题。
+- `.workbuddy/verify-marked-page.cjs`（新建）：用真实 DOM 跑 `MarkItemExtractor` 与 `QuestionLiExtractor`，并对同一份 HTML 做**新旧兜底逻辑对照** —— 旧逻辑对 `marginRight40` 判 true（印证这是真 bug），新逻辑判 false。
+- 单测 153 → **157 例全绿**；`typecheck` 与 ESLint（`src`）0 问题。
+
+## 3.0.22
+
+### 变更
+
+- **试卷批阅结果页 / 章节测验「已批阅」视图：答对的题现在能导出答案了**。这类页面不输出「正确答案」文本，只在每题下用一个对错图标表示批阅结果（形如「我的答案：C ✓ 0.2 分」），此前导出的「答案汇总」会整页变成「（未找到答案）」。现在：
+  - 批阅为**全对**时，「我的答案」必然与标准答案一致 → 回填成正确答案；
+  - 批阅**错误 / 部分正确**时页面确实没有正确答案 → 保持留空（「（未找到答案）」），不做猜测；
+  - 页面本身有「正确答案」文本时一律以页面为准，行为不变。
+- **修掉「回填只在一条提取路径上生效」的缺口**。此前只有 `.TiMu`（章节测验模板）接了回填，而试卷批阅页用的 `.mark_item .questionLi`、纯 `.questionLi`、通用容器三条路径都直接调 `extractCorrectAnswer` —— 答对了也拿不到答案。
+- **答对图标的识别更宽容**。学习通各版本类名不一（`.marking_dui` / `.marking_dui_true` / `.icon_dui` / `.icon-dui` / `[data-result="right"]` / `[data-correct="true"]` …），改为「明确类名 + 名称含 `dui`/`correct`/`right` 兜底」，并**排除** `cuo`/`wrong`/`bandui`/`error`/`fail`：宁可漏回填，也不把错答案当成标准答案。（3.0.23 起兜底收紧为「按单个 class 词 + 词边界」匹配，见上）
+
+### 说明
+
+- **新增 `resolveCorrectAnswer(container)` 作为取答案的唯一入口**：先读页面上的「正确答案」文本，读不到再按批阅结果推断。四个提取器（`mark-item` / `question-li` / `generic-exercise` / `timu`）统一改走它，避免以后再出现「某条提取路径漏接回填」。
+- **新增 `hasGradingCorrectMarker(container)`** 收敛「是否批阅为全对」的判定。`.marking_cuo` / `.marking_bandui` 优先级最高：同一容器里渲染多次作答记录（既有对勾又有红叉）时判定为「非全对」，不冒险回填。
+- **答错的题在这类页面上无法提取**，这是页面本身的限制（考试结果页通常不允许考后看答案）：该页只有「我的答案」和批阅图标，没有正确答案来源。若需要这些题的答案，只能另找入口（如「作答记录 / 查看解析」页，或该章可重做的练习页）。
+
+### 验证
+
+- 新增 `tests/graded-answer.test.cjs`（8 例）：试卷批阅页答对回填、答错/部分正确不回填、7 种答对图标变体逐个识别、多次作答记录以错优先、页面自带答案时优先、无批阅图标不回填、`.questionLi` 路径回填、多小题各自独立判断。该模板此前无任何测试覆盖。
+- 单测 145 → **153 例全绿**；`typecheck` 与 ESLint（`src`）0 问题。
+
 ## 3.0.21
 
 ### 变更

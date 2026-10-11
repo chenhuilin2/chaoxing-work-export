@@ -1,18 +1,12 @@
 import type { Question, QuestionOption, QuestionType } from '../domain/question';
 import { parseLeadingNumber, textOf } from '../utils/dom';
 import { hasExplicitWrongMarker } from './answer-comparison';
-import {
-  extractAnalysis,
-  extractCorrectAnswer,
-  extractUserAnswer,
-  inferCorrectAnswerFromGrading,
-} from './common-answer';
+import { extractAnalysis, extractUserAnswer, resolveCorrectAnswer } from './common-answer';
 import type { ExtractorContext, QuestionExtractor } from './contracts';
 import { parseLegacyOption, parseOptions } from './option-parser';
 import { createQuestion } from './question-factory';
 import { resolveQuestionStem } from './question-stem';
 import { detectQuestionType, inferQuestionType } from './question-type';
-import { isRichContentEmpty } from './rich-content';
 
 /**
  * 选项容器候选（当前版本 → 历史版本），命中即用；解析与诊断报告共用同一份，
@@ -174,7 +168,7 @@ export class TiMuExtractor implements QuestionExtractor {
 
     // 「已批阅」视图没有正确答案文本，只有批阅结果图标，拿不到答案时按批阅结果推断
     const userAnswer = extractUserAnswer(container);
-    const correctAnswer = extractCorrectAnswer(container);
+    const correctAnswer = resolveCorrectAnswer(container);
 
     return createQuestion({
       number: parseLeadingNumber(textOf(title.querySelector('i.fl')) || stem.rawText),
@@ -182,9 +176,7 @@ export class TiMuExtractor implements QuestionExtractor {
       typeMeta: textOf(title.querySelector('.newZy_TItle')) || undefined,
       stem: stem.content,
       options: resolveOptions(container),
-      correctAnswer: isRichContentEmpty(correctAnswer)
-        ? inferCorrectAnswerFromGrading(container, userAnswer)
-        : correctAnswer,
+      correctAnswer,
       userAnswer,
       analysis: extractAnalysis(container),
       explicitWrong: hasExplicitWrongMarker(container),

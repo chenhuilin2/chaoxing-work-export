@@ -1,5 +1,32 @@
 # Changelog
 
+## 3.0.24
+
+### 变更
+
+- **修掉简答题答案提取不到（答案汇总显示「（未找到答案）」）**。学习通把答案区的「标签」与「正文」渲染成两个**同级同名**容器，简答题最典型：
+  ```html
+  <div class="correctAnswerBx">
+    <div class="correctAnswer">正确答案：</div>
+    <!-- 第一个：只有标签，内容为空 -->
+    <div class="correctAnswer marTop6">五四运动是…</div>
+    <!-- 第二个：真正的答案 -->
+  </div>
+  ```
+  旧实现「取第一个匹配元素」，命中的永远是那个空标签容器，于是整道简答题的答案成了「（未找到答案）」（单选题不受影响，它的答案在第一个容器里就有内容）。
+  - 现在 `extractCorrectAnswer` / `extractUserAnswer` / `extractAnalysis` 统一改为**在同一选择器下继续往后找第一个内容非空的匹配**（`extractFirstNonEmptyContent`），再换下一个选择器。第一个匹配就有内容的页面行为逐字不变。
+
+### 说明
+
+- 简答题答案常是多段长文，`<br>` 与 `<p>` 会被保留为换行，导出的 TXT / Markdown / Word 里按原始分段呈现（实测「第四章」两题：192 字与 275 字，均为多段）。
+- 该缺陷只在「标签容器先出现且为空」的结构下触发，因此选择题、判断题、填空题一直正常 —— 这也是它此前没被发现的原因。
+
+### 验证
+
+- `tests/essay-answer.test.cjs`（新建，8 例）：真实结构与真实类名的简答题答案提取、我的答案取自 `myAllAnswerBx`、简答题不计错题、选择题回归（答案仍在第一个容器）、`extractCorrectAnswer` / `extractUserAnswer` 跳过空标签容器、全部候选为空时不造假答案、题型混排不串题。
+- `.workbuddy/verify-essay-answer.cjs`（新建）：用用户提供的真实页面（`tmp.html`，章节测验「第四章」58 题）跑完整提取 + 导出 TXT，核对简答题答案非空、含关键句、保留多段，并确认 29 道选择题答案无一为空。
+- 单测 157 → **165 例全绿**；`typecheck` 与 ESLint（`src`）0 问题。
+
 ## 3.0.23
 
 ### 变更

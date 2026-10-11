@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         超星学习通作业/考试一键提取导出 Word 文档
 // @namespace    https://github.com/chenhuilin2/chaoxing-work-export
-// @version      3.0.23
+// @version      3.0.24
 // @description  TypeScript 重构版：提取学习通作业与考试题目，支持富文本、答案解析、错题、章节批量提取及 Word/TXT/Markdown 导出
 // @author       huilin and contributors
 // @license      GPL-3.0-only
@@ -74,7 +74,7 @@
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.UI_HOST_ID = exports.APP_VERSION = exports.APP_NAME = void 0;
     exports.APP_NAME = 'Chaoxing Work Export';
-    exports.APP_VERSION = '3.0.23';
+    exports.APP_VERSION = '3.0.24';
     exports.UI_HOST_ID = 'chaoxing-work-export-root';
 });
 define("domain/export-options", ["require", "exports"], function (require, exports) {
@@ -3094,9 +3094,29 @@ define("extractors/common-answer", ["require", "exports", "utils/dom", "extracto
         '.answer-analysis',
         '[data-role="analysis"]',
     ];
-    function extractFirstContent(container, selectors) {
-        const element = (0, dom_1.firstMatch)(container, selectors);
-        return (0, rich_content_3.stripAnswerLabel)((0, rich_content_3.extractRichContent)(element));
+    /**
+     * 逐选择器、逐匹配地返回「第一个内容非空」的元素内容。
+     *
+     * 学习通常把答案区的「标签」与「正文」拆成两个**同级同名**容器，简答题尤其典型：
+     *
+     *   <div class="correctAnswerBx">
+     *     <div class="correctAnswer">正确答案：</div>            ← 第一个：只有标签
+     *     <div class="correctAnswer marTop6">五四运动是…</div>    ← 第二个：真正的答案
+     *   </div>
+     *
+     * 只取「第一个匹配元素」会永远读到空标签，导出变成「（未找到答案）」；
+     * 因此这里在同一选择器下继续往后找第一个非空的匹配，再换下一个选择器。
+     * 第一个匹配就有内容时行为与原来完全一致（选择题走的就是这条路）。
+     */
+    function extractFirstNonEmptyContent(container, selectors) {
+        for (const selector of selectors) {
+            for (const element of (0, dom_1.allMatches)(container, [selector])) {
+                const content = (0, rich_content_3.stripAnswerLabel)((0, rich_content_3.extractRichContent)(element));
+                if (!(0, rich_content_3.isRichContentEmpty)(content))
+                    return content;
+            }
+        }
+        return [];
     }
     function extractFillAnswer(container, selector) {
         const elements = (0, dom_1.allMatches)(container, [selector]);
@@ -3107,13 +3127,13 @@ define("extractors/common-answer", ["require", "exports", "utils/dom", "extracto
         const fill = extractFillAnswer(container, '.mark_answer .mark_fill.colorGreen dd');
         if (!(0, rich_content_3.isRichContentEmpty)(fill))
             return fill;
-        return extractFirstContent(container, CORRECT_SELECTORS);
+        return extractFirstNonEmptyContent(container, CORRECT_SELECTORS);
     }
     function extractUserAnswer(container) {
         const fill = extractFillAnswer(container, '.mark_answer .mark_fill .colorDeep, .mark_answer .mark_fill dd.colorDeep');
         if (!(0, rich_content_3.isRichContentEmpty)(fill))
             return fill;
-        const direct = extractFirstContent(container, USER_SELECTORS);
+        const direct = extractFirstNonEmptyContent(container, USER_SELECTORS);
         if (!(0, rich_content_3.isRichContentEmpty)(direct))
             return direct;
         const checked = (0, option_parser_1.answersFromCheckedInputs)(container);
@@ -3133,7 +3153,7 @@ define("extractors/common-answer", ["require", "exports", "utils/dom", "extracto
         return [];
     }
     function extractAnalysis(container) {
-        return extractFirstContent(container, ANALYSIS_SELECTORS);
+        return extractFirstNonEmptyContent(container, ANALYSIS_SELECTORS);
     }
     /**
      * 从「教师批阅结果」推断正确答案。

@@ -1,5 +1,5 @@
 import type { RichContent } from '../domain/question';
-import { allMatches, firstMatch } from '../utils/dom';
+import { allMatches } from '../utils/dom';
 import {
   extractRichContent,
   isRichContentEmpty,
@@ -47,9 +47,31 @@ const ANALYSIS_SELECTORS = [
   '[data-role="analysis"]',
 ] as const;
 
-function extractFirstContent(container: ParentNode, selectors: readonly string[]): RichContent {
-  const element = firstMatch<Element>(container, selectors);
-  return stripAnswerLabel(extractRichContent(element));
+/**
+ * 逐选择器、逐匹配地返回「第一个内容非空」的元素内容。
+ *
+ * 学习通常把答案区的「标签」与「正文」拆成两个**同级同名**容器，简答题尤其典型：
+ *
+ *   <div class="correctAnswerBx">
+ *     <div class="correctAnswer">正确答案：</div>            ← 第一个：只有标签
+ *     <div class="correctAnswer marTop6">五四运动是…</div>    ← 第二个：真正的答案
+ *   </div>
+ *
+ * 只取「第一个匹配元素」会永远读到空标签，导出变成「（未找到答案）」；
+ * 因此这里在同一选择器下继续往后找第一个非空的匹配，再换下一个选择器。
+ * 第一个匹配就有内容时行为与原来完全一致（选择题走的就是这条路）。
+ */
+function extractFirstNonEmptyContent(
+  container: ParentNode,
+  selectors: readonly string[],
+): RichContent {
+  for (const selector of selectors) {
+    for (const element of allMatches<Element>(container, [selector])) {
+      const content = stripAnswerLabel(extractRichContent(element));
+      if (!isRichContentEmpty(content)) return content;
+    }
+  }
+  return [];
 }
 
 function extractFillAnswer(container: ParentNode, selector: string): RichContent {
@@ -61,7 +83,7 @@ function extractFillAnswer(container: ParentNode, selector: string): RichContent
 export function extractCorrectAnswer(container: Element): RichContent {
   const fill = extractFillAnswer(container, '.mark_answer .mark_fill.colorGreen dd');
   if (!isRichContentEmpty(fill)) return fill;
-  return extractFirstContent(container, CORRECT_SELECTORS);
+  return extractFirstNonEmptyContent(container, CORRECT_SELECTORS);
 }
 
 export function extractUserAnswer(container: Element): RichContent {
@@ -71,7 +93,7 @@ export function extractUserAnswer(container: Element): RichContent {
   );
   if (!isRichContentEmpty(fill)) return fill;
 
-  const direct = extractFirstContent(container, USER_SELECTORS);
+  const direct = extractFirstNonEmptyContent(container, USER_SELECTORS);
   if (!isRichContentEmpty(direct)) return direct;
 
   const checked = answersFromCheckedInputs(container);
@@ -94,7 +116,7 @@ export function extractUserAnswer(container: Element): RichContent {
 }
 
 export function extractAnalysis(container: Element): RichContent {
-  return extractFirstContent(container, ANALYSIS_SELECTORS);
+  return extractFirstNonEmptyContent(container, ANALYSIS_SELECTORS);
 }
 
 /**

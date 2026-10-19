@@ -122,6 +122,7 @@ function template(): string {
               <label class="cwe-check"><input data-option="shuffle" type="checkbox">题型内乱序</label>
               <label class="cwe-check"><input data-option="bankImport" type="checkbox">题库导入</label>
               <label class="cwe-check"><input data-option="splitByChapter" type="checkbox" disabled>按章节拆分文件</label>
+              <label class="cwe-check"><input data-option="splitBySection" type="checkbox" disabled>按小节拆分文件</label>
             </div>
           </section>
 
@@ -344,6 +345,9 @@ export class PanelView {
     const split = this.option('splitByChapter');
     split.disabled = count < 2;
     if (count < 2) split.checked = false;
+    const sectionSplit = this.option('splitBySection');
+    sectionSplit.disabled = count < 2;
+    if (count < 2) sectionSplit.checked = false;
   }
 
   readExportOptions(): ExportOptions {
@@ -362,6 +366,7 @@ export class PanelView {
       shuffle: this.option('shuffle').checked,
       bankImport: format === 'word' && this.option('bankImport').checked,
       splitByChapter: this.option('splitByChapter').checked,
+      splitBySection: this.option('splitBySection').checked,
     };
   }
 
@@ -374,6 +379,7 @@ export class PanelView {
       shuffle: options.shuffle,
       bankImport: options.bankImport,
       splitByChapter: options.splitByChapter,
+      splitBySection: options.splitBySection,
     };
   }
 
@@ -387,7 +393,11 @@ export class PanelView {
     this.option('withWrong').checked = options.withWrong;
     this.option('shuffle').checked = options.shuffle;
     this.option('bankImport').checked = options.bankImport;
-    this.option('splitByChapter').checked = options.splitByChapter && this.chapterCount > 1;
+    // 两种拆分互斥：历史记录里若两个都为真，以更细的「按小节」为准
+    const splitBySection = options.splitBySection && this.chapterCount > 1;
+    this.option('splitBySection').checked = splitBySection;
+    this.option('splitByChapter').checked =
+      !splitBySection && options.splitByChapter && this.chapterCount > 1;
     this.updateOptionAvailability();
   }
 
@@ -651,6 +661,8 @@ export class PanelView {
       .querySelectorAll<HTMLInputElement>('input[name="cwe-format"], [data-option]')
       .forEach((input) => {
         input.addEventListener('change', () => {
+          // 「按章节拆分」与「按小节拆分」是两种互斥的文件划分方式：勾一个就取消另一个
+          this.enforceSplitExclusivity(input);
           this.updateOptionAvailability(input);
           this.callbacks.onPreferencesChange(this.readExportPreferences());
         });
@@ -773,6 +785,20 @@ export class PanelView {
     header.addEventListener('pointercancel', finish);
   }
 
+  /**
+   * 「按章节拆分」与「按小节拆分」互斥：勾上一个就把另一个取消。
+   *
+   * 两种拆分只是粒度不同，同时勾选没有意义（拆分计划里以小节为准），
+   * 与其让用户猜哪个生效，不如在界面上就只允许选一个。
+   */
+  private enforceSplitExclusivity(changed: HTMLInputElement): void {
+    const option = changed.dataset.option;
+    if (option !== 'splitByChapter' && option !== 'splitBySection') return;
+    if (!changed.checked) return;
+    const other = this.option(option === 'splitByChapter' ? 'splitBySection' : 'splitByChapter');
+    other.checked = false;
+  }
+
   private updateOptionAvailability(changed?: HTMLInputElement): void {
     const selectedFormat = this.shadow.querySelector<HTMLInputElement>(
       'input[name="cwe-format"]:checked',
@@ -806,6 +832,7 @@ export class PanelView {
     // 题库导入仅在 Word 格式下可用，TXT/MD 格式下始终禁用
     this.option('bankImport').disabled = selectedFormat !== 'word';
     this.option('splitByChapter').disabled = this.chapterCount < 2;
+    this.option('splitBySection').disabled = this.chapterCount < 2;
     this.updateFilenamePreview();
   }
 

@@ -211,6 +211,7 @@ function migrateLegacyEntry(value: unknown): HistoryEntry | null {
     shuffle: legacyOptions.shuffle === true,
     bankImport: legacyOptions.bankImport === true,
     splitByChapter: legacyOptions.splitByChapter === true,
+    splitBySection: legacyOptions.splitBySection === true,
   };
   const idSource = payload.id;
   const createdAtSource = payload.createdAt ?? payload.date;

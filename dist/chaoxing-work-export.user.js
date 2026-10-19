@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         超星学习通作业/考试一键提取导出 Word 文档
 // @namespace    https://github.com/chenhuilin2/chaoxing-work-export
-// @version      3.0.25
+// @version      3.0.26
 // @description  TypeScript 重构版：提取学习通作业与考试题目，支持富文本、答案解析、错题、章节批量提取及 Word/TXT/Markdown 导出
 // @author       huilin and contributors
 // @license      GPL-3.0-only
@@ -74,7 +74,7 @@
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.UI_HOST_ID = exports.APP_VERSION = exports.APP_NAME = void 0;
     exports.APP_NAME = 'Chaoxing Work Export';
-    exports.APP_VERSION = '3.0.25';
+    exports.APP_VERSION = '3.0.26';
     exports.UI_HOST_ID = 'chaoxing-work-export-root';
 });
 define("domain/export-options", ["require", "exports"], function (require, exports) {
@@ -281,6 +281,8 @@ define("domain/settings", ["require", "exports"], function (require, exports) {
             shuffle: false,
             bankImport: false,
             splitByChapter: false,
+            // 默认不拆：两种拆分互斥，默认保持「单文件 + 章内分节」的原行为
+            splitBySection: false,
         },
         enableDrag: false,
         rememberPanelPosition: true,
@@ -4520,8 +4522,9 @@ define("exporters/export-plan", ["require", "exports", "domain/chapter", "export
     /**
      * 规划本次导出要产出哪些文件：
      * - 只有一章（或页面没有章节信息）→ 一个文件、正文不分节，与改动前逐字一致；
+     * - 勾选「按小节拆分文件」且多章节 → **一个小节一个文件**（文件大标题即小节名）；
      * - 勾选「按章节拆分文件」且多章节 → **一章一个文件**（文件内含该章的所有小节）；
-     *   章数超过阈值时另附一个压缩包计划；
+     *   两种拆分的文件数超过阈值时都另附一个压缩包计划；
      * - 否则多章节单文件 → 正文按「章 → 小节 → 题型」分节，避免把各章节的同题型题目混在同一大题里。
      *
      * 题库导入（智能导入）格式不认章节标题，所以多章节时也不在单文件里插章节标题，
@@ -4544,6 +4547,38 @@ define("exporters/export-plan", ["require", "exports", "domain/chapter", "export
             return {
                 documents: [{ title: legacy.title, sections: [section], filename: `${base}${ext}` }],
                 archive: null,
+            };
+        }
+        // 按小节拆分：一个小节一个文件。
+        // 目录树只有一个章、下面挂十几个小节时（「1 章节测试」下 1.1~1.11），按章拆只有 1 个文件，
+        // 这条分支才是用户要的粒度。与按章拆分互斥；两者同时为真时以小节为准（面板上勾一个会取消另一个）。
+        if (options.splitBySection) {
+            const blocks = chapters.map((chapter, index) => {
+                const data = (0, legacy_bridge_1.toLegacyChapter)(chapter);
+                // 文件大标题就是小节名，正文里不再重复一次小节标题（否则 Word 里会连着出现两遍）
+                const section = {
+                    chapterHeading: null,
+                    heading: null,
+                    results: shuffle ? (0, legacy_bridge_1.shuffleQuestions)(data.results, data.typeOrder) : data.results,
+                    typeOrder: data.typeOrder,
+                };
+                // 小节名带页面编号（「1.1 导言」）；页面没给编号时退回小节名本身
+                const title = (0, chapter_1.sectionHeadingText)(chapter) || chapter.title;
+                return { title: title || `小节${index + 1}`, sections: [section] };
+            });
+            // 文件名词法规则与按章拆分一致：清洗非法字符 + 重名补 `_2` / `_3`
+            const names = uniqueChapterNames(blocks.map((block, index) => safeChapterTitle(block.title, index)));
+            const documents = blocks.map((block, index) => ({
+                title: block.title,
+                sections: block.sections,
+                filename: `${names[index]}${ext}`,
+            }));
+            return {
+                documents,
+                // 小节比章多得多，超过阈值同样打成一个压缩包（避免触发浏览器多文件下载拦截）
+                archive: documents.length > exports.CHAPTER_ARCHIVE_THRESHOLD
+                    ? { filename: `${base}.zip`, documentCount: documents.length }
+                    : null,
             };
         }
         // 按章节拆分：一章一个文件（章内的多个小节装在同一个文件里）
@@ -6074,7 +6109,7 @@ define("exporters/export-service", ["require", "exports", "exporters/export-plan
             if (options.format === 'word')
                 return '';
             // 复制的内容与下载的合并文件一致：强制走「多章节单文件」这一份计划
-            const { documents } = (0, export_plan_4.planExportDocuments)(result, { ...options, splitByChapter: false }, EXTENSIONS[options.format]);
+            const { documents } = (0, export_plan_4.planExportDocuments)(result, { ...options, splitByChapter: false, splitBySection: false }, EXTENSIONS[options.format]);
             const document = documents[0];
             if (!document)
                 return '';
@@ -6612,6 +6647,7 @@ define("infrastructure/history-repository", ["require", "exports", "domain/quest
             shuffle: legacyOptions.shuffle === true,
             bankImport: legacyOptions.bankImport === true,
             splitByChapter: legacyOptions.splitByChapter === true,
+            splitBySection: legacyOptions.splitBySection === true,
         };
         const idSource = payload.id;
         const createdAtSource = payload.createdAt ?? payload.date;
@@ -6761,6 +6797,7 @@ define("infrastructure/settings-repository", ["require", "exports", "domain/sett
             shuffle: firstBoolean(source, ['shuffle', 'randomOrder'], settings_1.DEFAULT_SETTINGS.exportPreferences.shuffle),
             bankImport: firstBoolean(source, ['bankImport', 'questionBankFormat', 'bankMode'], settings_1.DEFAULT_SETTINGS.exportPreferences.bankImport),
             splitByChapter: firstBoolean(source, ['splitByChapter', 'splitChapters'], settings_1.DEFAULT_SETTINGS.exportPreferences.splitByChapter),
+            splitBySection: firstBoolean(source, ['splitBySection', 'splitSections'], settings_1.DEFAULT_SETTINGS.exportPreferences.splitBySection),
         };
     }
     function settingsValue(value) {
@@ -8137,6 +8174,7 @@ define("ui/panel-view", ["require", "exports", "app-config", "domain/chapter", "
               <label class="cwe-check"><input data-option="shuffle" type="checkbox">题型内乱序</label>
               <label class="cwe-check"><input data-option="bankImport" type="checkbox">题库导入</label>
               <label class="cwe-check"><input data-option="splitByChapter" type="checkbox" disabled>按章节拆分文件</label>
+              <label class="cwe-check"><input data-option="splitBySection" type="checkbox" disabled>按小节拆分文件</label>
             </div>
           </section>
 
@@ -8341,6 +8379,10 @@ define("ui/panel-view", ["require", "exports", "app-config", "domain/chapter", "
             split.disabled = count < 2;
             if (count < 2)
                 split.checked = false;
+            const sectionSplit = this.option('splitBySection');
+            sectionSplit.disabled = count < 2;
+            if (count < 2)
+                sectionSplit.checked = false;
         }
         readExportOptions() {
             const formatElement = this.shadow.querySelector('input[name="cwe-format"]:checked');
@@ -8355,6 +8397,7 @@ define("ui/panel-view", ["require", "exports", "app-config", "domain/chapter", "
                 shuffle: this.option('shuffle').checked,
                 bankImport: format === 'word' && this.option('bankImport').checked,
                 splitByChapter: this.option('splitByChapter').checked,
+                splitBySection: this.option('splitBySection').checked,
             };
         }
         readExportPreferences() {
@@ -8366,6 +8409,7 @@ define("ui/panel-view", ["require", "exports", "app-config", "domain/chapter", "
                 shuffle: options.shuffle,
                 bankImport: options.bankImport,
                 splitByChapter: options.splitByChapter,
+                splitBySection: options.splitBySection,
             };
         }
         applyExportOptions(options) {
@@ -8377,7 +8421,11 @@ define("ui/panel-view", ["require", "exports", "app-config", "domain/chapter", "
             this.option('withWrong').checked = options.withWrong;
             this.option('shuffle').checked = options.shuffle;
             this.option('bankImport').checked = options.bankImport;
-            this.option('splitByChapter').checked = options.splitByChapter && this.chapterCount > 1;
+            // 两种拆分互斥：历史记录里若两个都为真，以更细的「按小节」为准
+            const splitBySection = options.splitBySection && this.chapterCount > 1;
+            this.option('splitBySection').checked = splitBySection;
+            this.option('splitByChapter').checked =
+                !splitBySection && options.splitByChapter && this.chapterCount > 1;
             this.updateOptionAvailability();
         }
         applySettings(settings) {
@@ -8601,6 +8649,8 @@ define("ui/panel-view", ["require", "exports", "app-config", "domain/chapter", "
                 .querySelectorAll('input[name="cwe-format"], [data-option]')
                 .forEach((input) => {
                 input.addEventListener('change', () => {
+                    // 「按章节拆分」与「按小节拆分」是两种互斥的文件划分方式：勾一个就取消另一个
+                    this.enforceSplitExclusivity(input);
                     this.updateOptionAvailability(input);
                     this.callbacks.onPreferencesChange(this.readExportPreferences());
                 });
@@ -8719,6 +8769,21 @@ define("ui/panel-view", ["require", "exports", "app-config", "domain/chapter", "
             header.addEventListener('pointerup', finish);
             header.addEventListener('pointercancel', finish);
         }
+        /**
+         * 「按章节拆分」与「按小节拆分」互斥：勾上一个就把另一个取消。
+         *
+         * 两种拆分只是粒度不同，同时勾选没有意义（拆分计划里以小节为准），
+         * 与其让用户猜哪个生效，不如在界面上就只允许选一个。
+         */
+        enforceSplitExclusivity(changed) {
+            const option = changed.dataset.option;
+            if (option !== 'splitByChapter' && option !== 'splitBySection')
+                return;
+            if (!changed.checked)
+                return;
+            const other = this.option(option === 'splitByChapter' ? 'splitBySection' : 'splitByChapter');
+            other.checked = false;
+        }
         updateOptionAvailability(changed) {
             const selectedFormat = this.shadow.querySelector('input[name="cwe-format"]:checked')?.value;
             const bank = this.option('bankImport');
@@ -8749,6 +8814,7 @@ define("ui/panel-view", ["require", "exports", "app-config", "domain/chapter", "
             // 题库导入仅在 Word 格式下可用，TXT/MD 格式下始终禁用
             this.option('bankImport').disabled = selectedFormat !== 'word';
             this.option('splitByChapter').disabled = this.chapterCount < 2;
+            this.option('splitBySection').disabled = this.chapterCount < 2;
             this.updateFilenamePreview();
         }
         // 文件名预览：附加答案时追加“（含答案）”，题库导入时追加“（题库导入）”，取消勾选时移除

@@ -21,6 +21,7 @@ export interface ExportPreferences {
   readonly shuffle: boolean;
   readonly bankImport: boolean;
   readonly splitByChapter: boolean;
+  readonly splitBySection: boolean;
 }
 
 export interface UserSettings {
@@ -45,6 +46,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
     shuffle: false,
     bankImport: false,
     splitByChapter: false,
+    // 默认不拆：两种拆分互斥，默认保持「单文件 + 章内分节」的原行为
+    splitBySection: false,
   },
   enableDrag: false,
   rememberPanelPosition: true,

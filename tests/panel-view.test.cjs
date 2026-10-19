@@ -85,7 +85,7 @@ test('导出选项：附加解析已整体移除，其余选项顺序不变', ()
   const { panel, shadow } = mountPanel();
   assert.deepEqual(
     [...shadow.querySelectorAll('.cwe-options [data-option]')].map((input) => input.dataset.option),
-    ['withAnswers', 'withWrong', 'shuffle', 'bankImport', 'splitByChapter'],
+    ['withAnswers', 'withWrong', 'shuffle', 'bankImport', 'splitByChapter', 'splitBySection'],
   );
   assert.equal(shadow.querySelector('[data-option="includeAnalysis"]'), null);
   // 面板读出的导出选项里也不再带该字段
@@ -95,10 +95,43 @@ test('导出选项：附加解析已整体移除，其余选项顺序不变', ()
     'format',
     'shuffle',
     'splitByChapter',
+    'splitBySection',
     'withAnswers',
     'withWrong',
   ]);
 
+  panel.destroy();
+});
+
+test('「按章节拆分」与「按小节拆分」互斥：勾一个自动取消另一个', () => {
+  const { panel, shadow } = mountPanel();
+  panel.setChapterCount(5);
+  const byChapter = shadow.querySelector('[data-option="splitByChapter"]');
+  const bySection = shadow.querySelector('[data-option="splitBySection"]');
+  assert.equal(byChapter.disabled, false);
+  assert.equal(bySection.disabled, false);
+
+  byChapter.checked = true;
+  byChapter.dispatchEvent(new Event('change'));
+  assert.equal(byChapter.checked, true);
+  assert.equal(bySection.checked, false);
+
+  bySection.checked = true;
+  bySection.dispatchEvent(new Event('change'));
+  assert.equal(bySection.checked, true);
+  assert.equal(byChapter.checked, false, '勾「按小节」要把「按章节」取消');
+
+  byChapter.checked = true;
+  byChapter.dispatchEvent(new Event('change'));
+  assert.equal(byChapter.checked, true);
+  assert.equal(bySection.checked, false, '勾「按章节」要把「按小节」取消');
+
+  // 章节数不足 2 时两个选项都禁用并清空（与原有「按章节」规则一致）
+  panel.setChapterCount(1);
+  assert.equal(byChapter.disabled, true);
+  assert.equal(bySection.disabled, true);
+  assert.equal(byChapter.checked, false);
+  assert.equal(bySection.checked, false);
   panel.destroy();
 });
 

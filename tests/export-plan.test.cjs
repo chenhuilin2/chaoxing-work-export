@@ -104,6 +104,92 @@ test('勾选「按章节拆分文件」：一章一个文件，文件名就是�
   );
 });
 
+test('勾选「按小节拆分文件」：一个小节一个文件，文件名带页面编号', () => {
+  const result = resultOf(NESTED_CHAPTERS, '思想道德与法治 - 3 个章节');
+
+  const plan = planExportDocuments(result, { ...exportOptions(), splitBySection: true }, '.docx');
+
+  assert.deepEqual(
+    plan.documents.map((document) => document.filename),
+    ['1.1 如何认识新方位.docx', '1.2 如何认识新使命.docx', '2.1 为什么要思考人生问题.docx'],
+  );
+  // 文件大标题即小节名，正文里两级标题都不再插（否则 Word 里会连着出现两遍小节名）
+  plan.documents.forEach((document) => {
+    assert.equal(document.sections.length, 1);
+    assert.equal(document.sections[0].heading, null);
+    assert.equal(document.sections[0].chapterHeading, null);
+  });
+  assert.deepEqual(
+    plan.documents.map((document) => document.title),
+    ['1.1 如何认识新方位', '1.2 如何认识新使命', '2.1 为什么要思考人生问题'],
+  );
+  // 每个文件只装自己那个小节的题
+  assert.equal(plan.documents[0].sections[0].results['单选'][0].stemContent[0].text, '题干q1');
+  assert.equal(plan.documents[1].sections[0].results['多选'][0].stemContent[0].text, '题干q2');
+  assert.equal(plan.documents[2].sections[0].results['单选'][0].stemContent[0].text, '题干q3');
+  assert.equal(plan.archive, null);
+});
+
+test('只有一个章、十几个小节时：按章拆只出 1 个文件，按小节拆能拆成 11 个', () => {
+  // 用户的实际场景：目录里只有一个分组「1 章节测试（2026第二学期 新）」，下面挂 1.1~1.11
+  // —— 勾「按章节拆分」看起来没生效（只导出一个文件），其实是真的只有一个章。
+  const onlyGroup = group('g1', '1', '章节测试（2026第二学期 新）');
+  const titles = [
+    '导言',
+    '第一章',
+    '第二章',
+    '第三章',
+    '第四章',
+    '第五章',
+    '第六章',
+    '第七章',
+    '第八章',
+    '第九章',
+    '第十章',
+  ];
+  const items = titles.map((title, index) => {
+    return chapter(`c${index + 1}`, title, [question(`q${index + 1}`, 'single-choice')], {
+      label: `1.${index + 1}`,
+      group: onlyGroup,
+    });
+  });
+  const result = resultOf(items, '章节测试（2026第二学期 新）');
+
+  const byChapter = planExportDocuments(
+    result,
+    { ...exportOptions(), splitByChapter: true },
+    '.txt',
+  );
+  assert.equal(byChapter.documents.length, 1, '按章拆分：只有一个章，本来就只该产出一个文件');
+  assert.equal(byChapter.archive, null);
+
+  const bySection = planExportDocuments(
+    result,
+    { ...exportOptions(), splitBySection: true },
+    '.txt',
+  );
+  assert.equal(bySection.documents.length, 11);
+  assert.equal(bySection.documents[0].filename, '1.1 导言.txt');
+  assert.equal(bySection.documents[10].filename, '1.11 第十章.txt');
+  // 11 个文件超过阈值（5）→ 打成一个压缩包，与按章拆分的规则一致
+  assert.deepEqual(bySection.archive, { filename: '卷子.zip', documentCount: 11 });
+});
+
+test('两种拆分同时为真时以「按小节」为准（面板上互斥，这里兜底）', () => {
+  const result = resultOf(NESTED_CHAPTERS, '思想道德与法治 - 3 个章节');
+
+  const plan = planExportDocuments(
+    result,
+    { ...exportOptions(), splitByChapter: true, splitBySection: true },
+    '.txt',
+  );
+
+  assert.deepEqual(
+    plan.documents.map((document) => document.filename),
+    ['1.1 如何认识新方位.txt', '1.2 如何认识新使命.txt', '2.1 为什么要思考人生问题.txt'],
+  );
+});
+
 test('章节名里的文件名非法字符会被替换，空章节名回退到「章节N」', () => {
   const dirty = resultOf(
     [

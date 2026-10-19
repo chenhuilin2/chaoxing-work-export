@@ -88,6 +88,11 @@ function exportPreferencesValue(value: unknown): ExportPreferences {
       ['splitByChapter', 'splitChapters'],
       DEFAULT_SETTINGS.exportPreferences.splitByChapter,
     ),
+    splitBySection: firstBoolean(
+      source,
+      ['splitBySection', 'splitSections'],
+      DEFAULT_SETTINGS.exportPreferences.splitBySection,
+    ),
   };
 }
 

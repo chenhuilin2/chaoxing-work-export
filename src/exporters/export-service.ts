@@ -74,7 +74,7 @@ export class ExportService {
     // 复制的内容与下载的合并文件一致：强制走「多章节单文件」这一份计划
     const { documents } = planExportDocuments(
       result,
-      { ...options, splitByChapter: false },
+      { ...options, splitByChapter: false, splitBySection: false },
       EXTENSIONS[options.format],
     );
     const document = documents[0];

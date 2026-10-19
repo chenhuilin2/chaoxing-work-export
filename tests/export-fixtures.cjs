@@ -67,6 +67,7 @@ function exportOptions(overrides = {}) {
     shuffle: false,
     bankImport: false,
     splitByChapter: false,
+    splitBySection: false,
     ...overrides,
   };
 }

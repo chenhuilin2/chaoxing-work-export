@@ -13,6 +13,8 @@
 //     「第 N 章 名字」单级写法，输出与改动前逐字一致。
 //   - 「按章节拆分文件」按**章**拆：一章一个文件，文件里装该章的所有小节；压缩包阈值按章数算，
 //     文件名就是章名本身（「第 1 章 担当复兴大任 成就时代新人.txt」），不再拼课程名与序号前缀。
+//   - 「按小节拆分文件」按**小节**拆：一个小节一个文件，文件名带页面编号（「1.1 导言.txt」）。
+//     两级拆分互斥，都走这一份计划，三种格式的文件划分不会各自跑偏。
 //   - 标题上方的空行数由 `SectionGaps` 描述（章 3 行 / 小节 2 行，见 READABLE_GAPS），
 //     TXT 与 Markdown 共用同一套间距规则，只有标题标记（`##` / `###`）各写各的。
 import type { ChapterGroupInfo } from '../domain/chapter';
@@ -297,8 +299,9 @@ function groupChapters(
 /**
  * 规划本次导出要产出哪些文件：
  * - 只有一章（或页面没有章节信息）→ 一个文件、正文不分节，与改动前逐字一致；
+ * - 勾选「按小节拆分文件」且多章节 → **一个小节一个文件**（文件大标题即小节名）；
  * - 勾选「按章节拆分文件」且多章节 → **一章一个文件**（文件内含该章的所有小节）；
- *   章数超过阈值时另附一个压缩包计划；
+ *   两种拆分的文件数超过阈值时都另附一个压缩包计划；
  * - 否则多章节单文件 → 正文按「章 → 小节 → 题型」分节，避免把各章节的同题型题目混在同一大题里。
  *
  * 题库导入（智能导入）格式不认章节标题，所以多章节时也不在单文件里插章节标题，
@@ -326,6 +329,42 @@ export function planExportDocuments(
     return {
       documents: [{ title: legacy.title, sections: [section], filename: `${base}${ext}` }],
       archive: null,
+    };
+  }
+
+  // 按小节拆分：一个小节一个文件。
+  // 目录树只有一个章、下面挂十几个小节时（「1 章节测试」下 1.1~1.11），按章拆只有 1 个文件，
+  // 这条分支才是用户要的粒度。与按章拆分互斥；两者同时为真时以小节为准（面板上勾一个会取消另一个）。
+  if (options.splitBySection) {
+    const blocks = chapters.map((chapter, index) => {
+      const data = toLegacyChapter(chapter);
+      // 文件大标题就是小节名，正文里不再重复一次小节标题（否则 Word 里会连着出现两遍）
+      const section: ExportSection = {
+        chapterHeading: null,
+        heading: null,
+        results: shuffle ? shuffleQuestions(data.results, data.typeOrder) : data.results,
+        typeOrder: data.typeOrder,
+      };
+      // 小节名带页面编号（「1.1 导言」）；页面没给编号时退回小节名本身
+      const title = sectionHeadingText(chapter) || chapter.title;
+      return { title: title || `小节${index + 1}`, sections: [section] };
+    });
+    // 文件名词法规则与按章拆分一致：清洗非法字符 + 重名补 `_2` / `_3`
+    const names = uniqueChapterNames(
+      blocks.map((block, index) => safeChapterTitle(block.title, index)),
+    );
+    const documents = blocks.map((block, index) => ({
+      title: block.title,
+      sections: block.sections,
+      filename: `${names[index]}${ext}`,
+    }));
+    return {
+      documents,
+      // 小节比章多得多，超过阈值同样打成一个压缩包（避免触发浏览器多文件下载拦截）
+      archive:
+        documents.length > CHAPTER_ARCHIVE_THRESHOLD
+          ? { filename: `${base}.zip`, documentCount: documents.length }
+          : null,
     };
   }
 

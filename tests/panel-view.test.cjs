@@ -146,14 +146,15 @@ test('历史记录：元信息里标出这次导出用的是「按章节拆」�
   });
 
   panel.renderHistory([
-    entry('按小节', { splitBySection: true }),
+    entry('按小节', { splitBySection: true, withAnswers: true }),
     entry('按章节', { splitByChapter: true }),
     entry('不拆分', {}),
   ]);
 
   const metas = [...shadow.querySelectorAll('.cwe-history-meta')].map((node) => node.textContent);
-  assert.match(metas[0], /Word · 按小节拆/u);
-  assert.match(metas[1], /Word · 按章节拆/u);
+  // 拆分标记排在整行最后（在含答案/含错题等标志之后）
+  assert.match(metas[0], /Word · 含答案 · 按小节拆$/u);
+  assert.match(metas[1], /Word · 按章节拆$/u);
   // 没勾拆分时不额外占字，与改动前一致
   assert.doesNotMatch(metas[2], /按章节拆|按小节拆/u);
 

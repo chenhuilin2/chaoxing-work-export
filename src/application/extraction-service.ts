@@ -24,8 +24,11 @@ export interface QuestionSettleOptions {
    * 每轮采样的放弃判定：返回 true 立即结束并返回 null。
    * 用于「页面已经确认不会有题目」的场景（例如只有视频的小节没有测验任务卡），
    * 避免空等满整段超时。
+   *
+   * 入参是本轮已提取到的结果：只要已经拿到题目就不该放弃（页面没有测验卡名
+   * 但题目已经在 iframe 里渲染时也属于这种情况），免得把有题的小节误判成纯视频。
    */
-  readonly shouldAbort?: () => boolean;
+  readonly shouldAbort?: (result: ExtractionResult | null) => boolean;
 }
 
 // 采样间隔：只决定「题目出现」被检测到的延迟，越小越快（每轮含一次跨层提取）
@@ -59,6 +62,24 @@ export function incompleteChoiceCount(result: ExtractionResult | null): number {
   return result.questions.filter(
     (question) => CHOICE_TYPES.has(question.type) && question.options.length === 0,
   ).length;
+}
+
+/**
+ * 页面上是否已经存在题目结构（跨同源 iframe 检查）。
+ *
+ * 用途是「排除纯视频小节」的保险：判断「这个页面不会有题目」时，除了看任务卡栏里
+ * 有没有测验卡，还要确认页面里确实没有任何题目 DOM —— 有些页面（章节测验从别的入口
+ * 直接渲染、或任务卡名不叫测验）题目已经在 iframe 里，此时即便没有测验卡也要照常提取。
+ */
+export function hasQuestionDom(root: Document = document): boolean {
+  for (const { document: current } of collectAccessibleDocuments(root)) {
+    try {
+      if (current.querySelector(QUESTION_CONTAINER_SELECTOR)) return true;
+    } catch {
+      // 不可访问的文档直接跳过
+    }
+  }
+  return false;
 }
 
 /** 结果丰富度：题数优先，其次选项总数，用于在加载过程中保留最完整的一帧 */
@@ -155,9 +176,10 @@ export class ExtractionService {
 
     for (;;) {
       options.repair?.();
-      // 页面已确认不会再有题目（如只有视频的小节）：立刻放弃，不空等超时
-      if (options.shouldAbort?.()) return null;
       const result = this.extract();
+      // 页面已确认不会再有题目（如只有视频的小节）：立刻放弃，不空等超时。
+      // 判定放在提取之后，是为了让「已经读到题目」这一事实能否决放弃
+      if (options.shouldAbort?.(result)) return null;
 
       if (result && result.questions.length > 0) {
         const fingerprint = this.fingerprint(result);

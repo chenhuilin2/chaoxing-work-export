@@ -457,7 +457,7 @@ export class PanelView {
       if (entry.options.bankImport) flags.push('题库导入');
       const flagStr = flags.length > 0 ? ` · ${flags.join('、')}` : '';
       const fmtName = fmtNames[entry.options.format] || entry.options.format.toUpperCase();
-      // 拆分粒度决定这次导出了几个文件，属于和格式同级的关键信息，单独占一段
+      // 拆分粒度决定这次导出了几个文件，放在整行最后，先看题目与导出配置再看拆分方式
       const splitStr = entry.options.splitBySection
         ? ' · 按小节拆'
         : entry.options.splitByChapter
@@ -466,7 +466,7 @@ export class PanelView {
 
       const meta = document.createElement('div');
       meta.className = 'cwe-history-meta';
-      meta.textContent = `${new Date(entry.createdAt).toLocaleString()} · ${entry.result.statistics.total}题 · ${fmtName}${splitStr}${flagStr}`;
+      meta.textContent = `${new Date(entry.createdAt).toLocaleString()} · ${entry.result.statistics.total}题 · ${fmtName}${flagStr}${splitStr}`;
 
       const downloadBtn = document.createElement('button');
       downloadBtn.type = 'button';

@@ -220,6 +220,26 @@ const BANK_TYPE_LABELS: Record<string, string> = {
   简答: '【简答题】',
 };
 
+/**
+ * 判断题答案归一化成「对 / 错」，识别不了返回 null。
+ *
+ * 学习通各页面给的写法不统一：作业页给「对 / 错」，章节测验给「√ / ×」，还有「正确 / 错误」
+ * 「T / F」「A / B」。此前只认 `^[√✓Tt]|正确|True`，页面给「对」时不匹配、直接落到 else 分支，
+ * 整份题库的判断题答案会全部变成「错」（见 CHANGELOG 3.0.30）。
+ *
+ * 返回 null 时由调用方保留页面原文 —— 认不出来宁可不动，也不要猜一个答案出来。
+ */
+function normalizeTrueFalseAnswer(answer: string): '对' | '错' | null {
+  // 去掉空白与句读：「对。」「√ 」「正确、」这类写法不能被尾随字符带偏
+  const text = answer.replace(/[\s。．.、,，;；:：]/g, '');
+  if (!text) return null;
+  // 否定写法优先：先落袋「错 / 错误 / 不对 / 不正确 / × / F / B …」，剩下的才按肯定写法判 ——
+  // 旧实现用不锚定的 `/正确/`，「不正确」会被判成「对」，这里先把否定写法摘干净
+  if (/^(?:不对|不正确|错误|错|×|✗|✘|╳|X|否|FALSE|F|NO|N|B|0)/i.test(text)) return '错';
+  if (/^(?:对|正确|√|✓|✔|是|TRUE|T|YES|Y|A|1)/i.test(text)) return '对';
+  return null;
+}
+
 /** 题库导入格式的页面设置：A4 纵向，页边距比试卷略宽 */
 function bankImportSections(children: any[]): any[] {
   const { convertMillimetersToTwip } = docx;
@@ -372,11 +392,8 @@ async function buildBankImportBlob(
             const parts = answer.replace(/\s+/g, '').split('');
             formattedAnswerParts = [{ type: 'text', text: parts.join('，') }];
           } else if (qtype === '判断') {
-            if (/^[√✓Tt]|正确|True|TRUE/.test(answer)) {
-              formattedAnswerParts = [{ type: 'text', text: '对' }];
-            } else {
-              formattedAnswerParts = [{ type: 'text', text: '错' }];
-            }
+            const verdict = normalizeTrueFalseAnswer(answer);
+            if (verdict) formattedAnswerParts = [{ type: 'text', text: verdict }];
           }
           children.push(
             ...(await buildRichParagraphs(

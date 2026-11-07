@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         超星学习通作业/考试一键提取导出 Word 文档
 // @namespace    https://github.com/chenhuilin2/chaoxing-work-export
-// @version      3.0.28
+// @version      3.0.30
 // @description  TypeScript 重构版：提取学习通作业与考试题目，支持富文本、答案解析、错题、章节批量提取及 Word/TXT/Markdown 导出
 // @author       huilin and contributors
 // @license      GPL-3.0-only
@@ -74,7 +74,7 @@
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.UI_HOST_ID = exports.APP_VERSION = exports.APP_NAME = void 0;
     exports.APP_NAME = 'Chaoxing Work Export';
-    exports.APP_VERSION = '3.0.28';
+    exports.APP_VERSION = '3.0.30';
     exports.UI_HOST_ID = 'chaoxing-work-export-root';
 });
 define("domain/export-options", ["require", "exports"], function (require, exports) {
@@ -5318,6 +5318,28 @@ define("exporters/word-exporter", ["require", "exports", "exporters/legacy-bridg
         判断: '【判断题】',
         简答: '【简答题】',
     };
+    /**
+     * 判断题答案归一化成「对 / 错」，识别不了返回 null。
+     *
+     * 学习通各页面给的写法不统一：作业页给「对 / 错」，章节测验给「√ / ×」，还有「正确 / 错误」
+     * 「T / F」「A / B」。此前只认 `^[√✓Tt]|正确|True`，页面给「对」时不匹配、直接落到 else 分支，
+     * 整份题库的判断题答案会全部变成「错」（见 CHANGELOG 3.0.30）。
+     *
+     * 返回 null 时由调用方保留页面原文 —— 认不出来宁可不动，也不要猜一个答案出来。
+     */
+    function normalizeTrueFalseAnswer(answer) {
+        // 去掉空白与句读：「对。」「√ 」「正确、」这类写法不能被尾随字符带偏
+        const text = answer.replace(/[\s。．.、,，;；:：]/g, '');
+        if (!text)
+            return null;
+        // 否定写法优先：先落袋「错 / 错误 / 不对 / 不正确 / × / F / B …」，剩下的才按肯定写法判 ——
+        // 旧实现用不锚定的 `/正确/`，「不正确」会被判成「对」，这里先把否定写法摘干净
+        if (/^(?:不对|不正确|错误|错|×|✗|✘|╳|X|否|FALSE|F|NO|N|B|0)/i.test(text))
+            return '错';
+        if (/^(?:对|正确|√|✓|✔|是|TRUE|T|YES|Y|A|1)/i.test(text))
+            return '对';
+        return null;
+    }
     /** 题库导入格式的页面设置：A4 纵向，页边距比试卷略宽 */
     function bankImportSections(children) {
         const { convertMillimetersToTwip } = docx;
@@ -5448,12 +5470,9 @@ define("exporters/word-exporter", ["require", "exports", "exporters/legacy-bridg
                             formattedAnswerParts = [{ type: 'text', text: parts.join('，') }];
                         }
                         else if (qtype === '判断') {
-                            if (/^[√✓Tt]|正确|True|TRUE/.test(answer)) {
-                                formattedAnswerParts = [{ type: 'text', text: '对' }];
-                            }
-                            else {
-                                formattedAnswerParts = [{ type: 'text', text: '错' }];
-                            }
+                            const verdict = normalizeTrueFalseAnswer(answer);
+                            if (verdict)
+                                formattedAnswerParts = [{ type: 'text', text: verdict }];
                         }
                         children.push(...(await buildRichParagraphs(formattedAnswerParts || [{ type: 'text', text: answer }], '答案：', 120)));
                     }
@@ -7202,6 +7221,7 @@ define("application/extraction-service", ["require", "exports", "domain/question
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.ExtractionService = void 0;
     exports.incompleteChoiceCount = incompleteChoiceCount;
+    exports.hasQuestionDom = hasQuestionDom;
     // 采样间隔：只决定「题目出现」被检测到的延迟，越小越快（每轮含一次跨层提取）
     const QUESTION_SETTLE_INTERVAL_MS = 120;
     const DEFAULT_QUESTION_TIMEOUT_MS = 12000;
@@ -7226,6 +7246,25 @@ define("application/extraction-service", ["require", "exports", "domain/question
         if (!result)
             return 0;
         return result.questions.filter((question) => CHOICE_TYPES.has(question.type) && question.options.length === 0).length;
+    }
+    /**
+     * 页面上是否已经存在题目结构（跨同源 iframe 检查）。
+     *
+     * 用途是「排除纯视频小节」的保险：判断「这个页面不会有题目」时，除了看任务卡栏里
+     * 有没有测验卡，还要确认页面里确实没有任何题目 DOM —— 有些页面（章节测验从别的入口
+     * 直接渲染、或任务卡名不叫测验）题目已经在 iframe 里，此时即便没有测验卡也要照常提取。
+     */
+    function hasQuestionDom(root = document) {
+        for (const { document: current } of (0, dom_8.collectAccessibleDocuments)(root)) {
+            try {
+                if (current.querySelector(QUESTION_CONTAINER_SELECTOR))
+                    return true;
+            }
+            catch {
+                // 不可访问的文档直接跳过
+            }
+        }
+        return false;
     }
     /** 结果丰富度：题数优先，其次选项总数，用于在加载过程中保留最完整的一帧 */
     function richnessOf(result) {
@@ -7307,10 +7346,11 @@ define("application/extraction-service", ["require", "exports", "domain/question
             let stableMs = 0;
             for (;;) {
                 options.repair?.();
-                // 页面已确认不会再有题目（如只有视频的小节）：立刻放弃，不空等超时
-                if (options.shouldAbort?.())
-                    return null;
                 const result = this.extract();
+                // 页面已确认不会再有题目（如只有视频的小节）：立刻放弃，不空等超时。
+                // 判定放在提取之后，是为了让「已经读到题目」这一事实能否决放弃
+                if (options.shouldAbort?.(result))
+                    return null;
                 if (result && result.questions.length > 0) {
                     const fingerprint = this.fingerprint(result);
                     // 指纹未变化说明页面还停在上一个内容上（章节尚未切过去），这一类帧不参与判定
@@ -7602,23 +7642,29 @@ define("application/chapter-extraction-service", ["require", "exports", "domain/
     // 要求「栏存在且没有题目卡」持续这么久才算数，避免把重建过程中的中间态当成纯视频小节
     const NO_QUESTION_TAB_GRACE_MS = 1000;
     /**
-     * 「本小节没有测验任务点」探测器。
+     * 「本小节没有题目」探测器。
      *
      * 有些小节只放了视频/文档，任务卡栏里根本没有「章节测验」——题目永远不会出现，
      * 采样循环若照常等满超时，批量提取就会在这里卡住一下（用户感知为「停顿」）。
      * 任务卡栏在切章瞬间会整体消失（`#mainid` 先放 loading 图），
      * 因此要求「栏已存在、但没有题目卡」持续 `graceMs` 才算确认。
      *
-     * 判据取真实页面结构：`#prev_tab` 存在 + 没有任何 测验/作业/考试 任务卡。
+     * 判据不能只看卡名：真实页面里存在「题目已经在 iframe 里渲染、任务卡栏里却没有
+     * 测验卡」的情况（章节测验从别的入口进入、卡名被课程自定义改名等）。那种页面照常
+     * 提取即可，因此再加一道保险 —— **页面里已经有题目 DOM 时绝不放弃**。
      */
-    function createNoQuestionTabProbe(tabs, graceMs = NO_QUESTION_TAB_GRACE_MS) {
+    function createNoQuestionTabProbe(tabs, graceMs = NO_QUESTION_TAB_GRACE_MS, questionsPresent = () => (0, extraction_service_1.hasQuestionDom)()) {
         let missingSince = null;
         let aborted = false;
-        const check = () => {
+        const check = (result) => {
             if (aborted)
                 return true;
-            if (!tabs.present() || tabs.questionTabIndex() !== null) {
-                // 栏还没建出来（或题目卡又出现了）：重新计时
+            // 栏还没建出来 / 题目卡又出现了 / 本轮已经读到题目 / 页面里已有题目结构：
+            // 都不是「纯视频小节」，重新计时
+            if (!tabs.present() ||
+                tabs.questionTabIndex() !== null ||
+                (result !== undefined && result !== null && result.questions.length > 0) ||
+                questionsPresent()) {
                 missingSince = null;
                 return false;
             }
@@ -8616,7 +8662,7 @@ define("ui/panel-view", ["require", "exports", "app-config", "domain/chapter", "
                     flags.push('题库导入');
                 const flagStr = flags.length > 0 ? ` · ${flags.join('、')}` : '';
                 const fmtName = fmtNames[entry.options.format] || entry.options.format.toUpperCase();
-                // 拆分粒度决定这次导出了几个文件，属于和格式同级的关键信息，单独占一段
+                // 拆分粒度决定这次导出了几个文件，放在整行最后，先看题目与导出配置再看拆分方式
                 const splitStr = entry.options.splitBySection
                     ? ' · 按小节拆'
                     : entry.options.splitByChapter
@@ -8624,7 +8670,7 @@ define("ui/panel-view", ["require", "exports", "app-config", "domain/chapter", "
                         : '';
                 const meta = document.createElement('div');
                 meta.className = 'cwe-history-meta';
-                meta.textContent = `${new Date(entry.createdAt).toLocaleString()} · ${entry.result.statistics.total}题 · ${fmtName}${splitStr}${flagStr}`;
+                meta.textContent = `${new Date(entry.createdAt).toLocaleString()} · ${entry.result.statistics.total}题 · ${fmtName}${flagStr}${splitStr}`;
                 const downloadBtn = document.createElement('button');
                 downloadBtn.type = 'button';
                 downloadBtn.className = 'cwe-history-download';

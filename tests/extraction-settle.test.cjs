@@ -260,6 +260,60 @@ test('批量提取：章节切换后自动补切任务卡并尽快拿到题目',
   assert.ok(elapsed < 2_000, `单章应秒级完成，实际耗时 ${elapsed}ms`);
 });
 
+/** 
+ * 「任务卡栏里没有测验卡，但题目已经在 iframe 里」的章节页。
+ * 真实场景：章节测验从别的入口打开、或课程把卡片改名，题目照常渲染，卡名对不上。
+ */
+function buildNoQuizTabPage(rebuildDelayMs) {
+  const firstAnswer = createDocument(renderQuestion());
+  const secondAnswer = createDocument(SECOND_CHAPTER_HTML);
+
+  const outer = createDocument(`
+    <div class="prev_title_pos"><div class="prev_title" title="导论1">导论1</div></div>
+    ${CATALOG_HTML}
+    <div class="prev_list" id="prev_tab">
+      <ul class="prev_ul clearfix">
+        <li class="active" title="视频" role="option" id="dct1"><div class="prev_white"><span class="num">1</span><span class="spanText">视频</span></div></li>
+        <li class="c2" title="资料" role="option" id="dct3"><div class="prev_white"><span class="num">2</span><span class="spanText">资料</span></div></li>
+      </ul>
+    </div>
+    <iframe id="frame"></iframe>`);
+
+  let current = firstAnswer;
+  Object.defineProperty(outer.getElementById('frame'), 'contentDocument', {
+    get: () => current,
+    configurable: true,
+  });
+
+  // 切章：延迟后才换成本章题目，期间 iframe 里停着上一章的题目 DOM
+  outer.getElementById('1200670000').addEventListener('click', () => {
+    window.setTimeout(() => {
+      current = secondAnswer;
+    }, rebuildDelayMs);
+  });
+
+  return outer;
+}
+
+test('批量提取：没有「章节测验」卡但页面已有题目时，不当作纯视频小节跳过', async () => {
+  // 重建比「无题卡确认时长」（1s）更晚：只看卡名的实现会在 1s 处放弃，把有题的小节判成跳过
+  const outer = buildNoQuizTabPage(1_400);
+  useGlobalDocument(outer);
+  const states = [];
+
+  const startedAt = Date.now();
+  const result = await buildChapterService(outer).extractSelected([1], (progress) =>
+    states.push(progress),
+  );
+  const elapsed = Date.now() - startedAt;
+
+  assert.equal(result.chapters.length, 1);
+  assert.equal(result.chapters[0].title, '导论2');
+  assert.match(richContentToText(result.questions[0].stem), /农村包围城市/);
+  assert.equal(states.at(-1).state, 'success');
+  assert.ok(elapsed < 5_000, `应正常提取而不是跳过，实际耗时 ${elapsed}ms`);
+});
+
 test('批量提取：章节已激活时不空等，直接采用当前题目', async () => {
   const page = buildStudyPage();
   useGlobalDocument(page.outer);

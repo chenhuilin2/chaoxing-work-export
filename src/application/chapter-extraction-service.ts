@@ -9,7 +9,7 @@ import { resolvePageTitle } from '../extractors/page-context';
 import { delay } from '../utils/async';
 import { stableHash } from '../utils/hash';
 import { ChapterLocator, type ChapterDescriptor } from './chapter-locator';
-import { incompleteChoiceCount, type ExtractionService } from './extraction-service';
+import { incompleteChoiceCount, hasQuestionDom, type ExtractionService } from './extraction-service';
 import { QuestionTabGuard, TaskTabLocator } from './task-tab-locator';
 
 // 单章等待上限：章节切换后要依次等卡片页重建 → 任务卡切换 → 答题页加载
@@ -37,25 +37,34 @@ export interface ChapterProgress {
 export type ChapterProgressListener = (progress: ChapterProgress) => void;
 
 /**
- * 「本小节没有测验任务点」探测器。
+ * 「本小节没有题目」探测器。
  *
  * 有些小节只放了视频/文档，任务卡栏里根本没有「章节测验」——题目永远不会出现，
  * 采样循环若照常等满超时，批量提取就会在这里卡住一下（用户感知为「停顿」）。
  * 任务卡栏在切章瞬间会整体消失（`#mainid` 先放 loading 图），
  * 因此要求「栏已存在、但没有题目卡」持续 `graceMs` 才算确认。
  *
- * 判据取真实页面结构：`#prev_tab` 存在 + 没有任何 测验/作业/考试 任务卡。
+ * 判据不能只看卡名：真实页面里存在「题目已经在 iframe 里渲染、任务卡栏里却没有
+ * 测验卡」的情况（章节测验从别的入口进入、卡名被课程自定义改名等）。那种页面照常
+ * 提取即可，因此再加一道保险 —— **页面里已经有题目 DOM 时绝不放弃**。
  */
 export function createNoQuestionTabProbe(
   tabs: TaskTabLocator,
   graceMs = NO_QUESTION_TAB_GRACE_MS,
-): { check: () => boolean; aborted: () => boolean } {
+  questionsPresent: () => boolean = () => hasQuestionDom(),
+): { check: (result?: ExtractionResult | null) => boolean; aborted: () => boolean } {
   let missingSince: number | null = null;
   let aborted = false;
-  const check = (): boolean => {
+  const check = (result?: ExtractionResult | null): boolean => {
     if (aborted) return true;
-    if (!tabs.present() || tabs.questionTabIndex() !== null) {
-      // 栏还没建出来（或题目卡又出现了）：重新计时
+    // 栏还没建出来 / 题目卡又出现了 / 本轮已经读到题目 / 页面里已有题目结构：
+    // 都不是「纯视频小节」，重新计时
+    if (
+      !tabs.present() ||
+      tabs.questionTabIndex() !== null ||
+      (result !== undefined && result !== null && result.questions.length > 0) ||
+      questionsPresent()
+    ) {
       missingSince = null;
       return false;
     }

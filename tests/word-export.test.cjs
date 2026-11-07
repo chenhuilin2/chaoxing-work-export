@@ -432,3 +432,42 @@ test('答案页：未勾选「附加答案」时不出现解析', async () => {
     false,
   );
 });
+
+test('题库导入：判断题答案按页面写法归一化成「对 / 错」，不再一律输出「错」', async () => {
+  // 学习通各页面写法不统一：作业页给「对 / 错」，章节测验给「√ / ×」，还有「正确 / 错误」「A / B」。
+  // 此前只认 √/✓/T/正确，页面给「对」时全部落到 else 分支 —— 整份判断题答案都是「错」。
+  const cases = [
+    ['对', '对'],
+    ['正确', '对'],
+    ['√', '对'],
+    ['A', '对'],
+    ['错', '错'],
+    ['错误', '错'],
+    ['×', '错'],
+    ['B', '错'],
+  ];
+  const questions = cases.map(([text], index) => ({
+    ...question(`tf${index}`, 'true-false'),
+    correctAnswer: [{ type: 'text', text }],
+  }));
+  const result = resultOf([chapter('c1', '判断题集', questions)], '判断题集');
+
+  const children = await renderDocument(result, exportOptions({ bankImport: true }));
+  const answers = paragraphTexts(children).filter((text) => text.startsWith('答案：'));
+
+  assert.deepEqual(
+    answers,
+    cases.map(([, expected]) => `答案：${expected}`),
+  );
+});
+
+test('题库导入：判断题答案认不出来时保留页面原文，不猜「对 / 错」', async () => {
+  const weird = {
+    ...question('tf-weird', 'true-false'),
+    correctAnswer: [{ type: 'text', text: '视情况而定' }],
+  };
+  const result = resultOf([chapter('c1', '判断题集', [weird])], '判断题集');
+
+  const children = await renderDocument(result, exportOptions({ bankImport: true }));
+  assert.ok(paragraphTexts(children).includes('答案：视情况而定'));
+});

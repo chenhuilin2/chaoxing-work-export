@@ -4,7 +4,13 @@
 // 章节顺序：多章单文件时是「章 1 题目 → 章 1 答案 → 章 1 错题 →（分页）章 2 题目 → …」，
 // 答案与错题跟着章走，不再集中堆在文档末尾。
 import type { RichContent } from '../domain/question';
-import { answerContent, formatRichForText, optionContent, questionContent } from './legacy-bridge';
+import {
+  analysisOf,
+  answerContent,
+  formatRichForText,
+  optionContent,
+  questionContent,
+} from './legacy-bridge';
 import type { LegacyTypeKey } from './legacy-bridge';
 import { type ExportSection, chapterBlocks, groupSections } from './export-plan';
 
@@ -87,10 +93,22 @@ async function buildImageRun(url: string): Promise<any> {
   return null;
 }
 
-async function buildRichRuns(content: RichContent, prefix = ''): Promise<any[]> {
+/** RichText 转 TextRun 时可覆盖的字号 / 颜色（docx 的 TextRun 只在构造时读 options，事后改属性无效） */
+interface RunStyle {
+  readonly size?: number;
+  readonly color?: string;
+}
+
+async function buildRichRuns(
+  content: RichContent,
+  prefix = '',
+  style: RunStyle = {},
+): Promise<any[]> {
   const { TextRun } = docx;
   const runs: any[] = [];
-  if (prefix) runs.push(new TextRun({ text: prefix, font: 'Microsoft YaHei', size: 22 }));
+  const size = style.size ?? 22;
+  const color = style.color;
+  if (prefix) runs.push(new TextRun({ text: prefix, font: 'Microsoft YaHei', size, color }));
   for (const part of content || []) {
     if (part.type === 'text') {
       const normalized = part.text.replace(/\n+/g, ' ');
@@ -99,7 +117,8 @@ async function buildRichRuns(content: RichContent, prefix = ''): Promise<any[]> 
           new TextRun({
             text: normalized,
             font: 'Microsoft YaHei',
-            size: 22,
+            size,
+            color,
             bold: part.bold || false,
             italics: part.italic || false,
             subScript: part.subScript || false,
@@ -108,15 +127,15 @@ async function buildRichRuns(content: RichContent, prefix = ''): Promise<any[]> 
         );
       }
     } else if (part.type === 'image') {
-      if (runs.length > 0) runs.push(new TextRun({ text: ' ', font: 'Microsoft YaHei', size: 22 }));
+      if (runs.length > 0) runs.push(new TextRun({ text: ' ', font: 'Microsoft YaHei', size }));
       const imgRun = await buildImageRun(part.url);
       if (imgRun) runs.push(imgRun);
-      runs.push(new TextRun({ text: ' ', font: 'Microsoft YaHei', size: 22 }));
+      runs.push(new TextRun({ text: ' ', font: 'Microsoft YaHei', size }));
     } else if (part.type === 'break') {
-      runs.push(new TextRun({ text: '\n', break: 1, font: 'Microsoft YaHei', size: 22 }));
+      runs.push(new TextRun({ text: '\n', break: 1, font: 'Microsoft YaHei', size }));
     }
   }
-  return runs.length ? runs : [new TextRun({ text: prefix, font: 'Microsoft YaHei', size: 22 })];
+  return runs.length ? runs : [new TextRun({ text: prefix, font: 'Microsoft YaHei', size, color })];
 }
 
 // 将富文本内容构建为带段后间距的 Paragraph 数组（Word 导出用）
@@ -725,6 +744,23 @@ async function appendAnswerPage(
               indent: { left: 420 },
             }),
           );
+          // 解析：作业页才有的「答案解析」，跟在答案下方一行（字号比答案小一号、灰蓝色、浅底）。
+          // 没有解析的题目不占位，导出结果与改动前一致。
+          const analysis = analysisOf(q);
+          if (analysis.length > 0) {
+            const analysisRuns = await buildRichRuns(analysis, '解析：', {
+              size: 20,
+              color: COLOR.muted,
+            });
+            children.push(
+              new Paragraph({
+                children: analysisRuns,
+                spacing: { after: 120 },
+                indent: { left: 420 },
+                shading: { fill: COLOR.analysisBg },
+              }),
+            );
+          }
           // 简答题答案常有多行，之间空一行便于区分
           if (qtype === '简答') {
             children.push(new Paragraph({ children: [], spacing: { after: 120 } }));

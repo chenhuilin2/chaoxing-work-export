@@ -272,3 +272,51 @@ test('批量提取：章节已激活时不空等，直接采用当前题目', as
   assert.equal(result.chapters[0].questions.length, 1);
   assert.ok(elapsed < 1_500, `应立即返回，实际耗时 ${elapsed}ms`);
 });
+
+/** 「第二个小节只有视频」的章节页：切过去后任务卡栏里只剩「视频」，没有「章节测验」 */
+function buildVideoOnlyPage() {
+  const firstAnswer = createDocument(renderQuestion());
+  const videoCard = createDocument('<div class="video-card">视频播放中</div>');
+
+  const outer = createDocument(`
+    <div class="prev_title_pos"><div class="prev_title" title="导论1">导论1</div></div>
+    ${CATALOG_HTML}
+    ${TAB_BAR_HTML}
+    <iframe id="frame"></iframe>`);
+
+  let current = firstAnswer;
+  Object.defineProperty(outer.getElementById('frame'), 'contentDocument', {
+    get: () => current,
+    configurable: true,
+  });
+
+  // 纯视频小节：卡片页重建后任务卡栏里只剩「视频」，题目永远不会出现
+  outer.getElementById('1200670000').addEventListener('click', () => {
+    window.setTimeout(() => {
+      current = videoCard;
+      outer.getElementById('dct2').remove();
+    }, PAGE_REBUILD_MS);
+  });
+
+  return outer;
+}
+
+test('批量提取：只有视频的小节确认没有测验卡后立即跳过，不等满超时', async () => {
+  const outer = buildVideoOnlyPage();
+  useGlobalDocument(outer);
+  const states = [];
+
+  const startedAt = Date.now();
+  await assert.rejects(
+    () => buildChapterService(outer).extractSelected([1], (progress) => states.push(progress)),
+    /都没有测验任务点/,
+  );
+  const elapsed = Date.now() - startedAt;
+
+  // 进度上报为「跳过」而不是「失败」：纯视频小节不是错误
+  assert.equal(states.at(-1).state, 'skipped');
+  assert.match(states.at(-1).message, /仅视频\/文档/);
+  // 旧实现会一路空等到 CHAPTER_SETTLE_TIMEOUT_MS（20s），用户感知为「卡住」
+  assert.ok(elapsed < 4_000, `应尽快跳过，实际耗时 ${elapsed}ms`);
+});
+

@@ -42,7 +42,7 @@ globalThis.docx = {
 
 const { generateWordBlob } = require('../.tmp/test/src/exporters/word-exporter.js');
 const { planExportDocuments } = require('../.tmp/test/src/exporters/export-plan.js');
-const { CHAPTERS, NESTED_CHAPTERS, chapter, question, resultOf } = require('./export-fixtures.cjs');
+const { CHAPTERS, NESTED_CHAPTERS, chapter, exportOptions, question, resultOf } = require('./export-fixtures.cjs');
 
 /** 渲染一份文档，直接返回它的段落数组 */
 async function renderDocument(result, options) {
@@ -389,4 +389,46 @@ test('题库导入格式：不认章节标题，题目按题型连续排列', as
   const lastSingle = texts.findLastIndex((text) => text.includes('【单选题】'));
   const firstMultiple = texts.findIndex((text) => text.includes('【多选题】'));
   assert.ok(lastSingle < firstMultiple);
+});
+
+test('答案页：有解析的题目在答案下方插一段「解析：」，没有解析的不插', async () => {
+  const withAnalysis = {
+    ...question('q1', 'single-choice'),
+    analysis: [{ type: 'text', text: '因为它确实是 A' }],
+  };
+  const result = resultOf(
+    [chapter('c1', '导论1', [withAnalysis, question('q2', 'single-choice')])],
+    '导论1',
+  );
+
+  const children = await renderDocument(result, exportOptions({ withAnswers: true }));
+  const paragraphs = paragraphTexts(children);
+  const analysisParagraphs = paragraphs.filter((text) => text.startsWith('解析：'));
+
+  // 只有第一题有解析：整份文档只多一段，且紧跟在它的答案后面
+  assert.deepEqual(analysisParagraphs, ['解析：因为它确实是 A']);
+  const answerIndex = paragraphs.findIndex((text) => text === '1. A');
+  assert.equal(paragraphs[answerIndex + 1], '解析：因为它确实是 A');
+
+  // 解析比答案小一号、灰蓝色、浅底，让它在答案页里不抢答案的视觉层级
+  const analysisNode = children.find(
+    (child) => child instanceof Paragraph && textOf(child).startsWith('解析：'),
+  );
+  assert.equal(analysisNode.children[0].size, 20);
+  assert.equal(analysisNode.children[0].color, '6B7280');
+  assert.equal(analysisNode.shading.fill, 'F7F9FC');
+});
+
+test('答案页：未勾选「附加答案」时不出现解析', async () => {
+  const withAnalysis = {
+    ...question('q1', 'single-choice'),
+    analysis: [{ type: 'text', text: '因为它确实是 A' }],
+  };
+  const result = resultOf([chapter('c1', '导论1', [withAnalysis])], '导论1');
+
+  const children = await renderDocument(result, exportOptions({ withAnswers: false }));
+  assert.equal(
+    paragraphTexts(children).some((text) => text.startsWith('解析：')),
+    false,
+  );
 });

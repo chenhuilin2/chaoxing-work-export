@@ -3,8 +3,10 @@
 // 多章节导出时按「章 → 小节」两级分段，且每章后面紧跟该章的答案与错题（见文件末尾的分段实现）。
 // 下面这些单章 formatter 本来就以「传入的结果集」为范围从 1 开始编号，按小节传入即自动按小节重排。
 import {
+  type LegacyQuestion,
   type LegacyResults,
   type LegacyTypeKey,
+  analysisOf,
   answerContent,
   formatRichForMD,
   optionContent,
@@ -101,14 +103,29 @@ export function formatAnswersMD(
         parts.forEach((part, i) => {
           output += `    (${i + 1}) ${part}  \n`;
         });
+        output += analysisLineMD(q);
         output += '\n';
       } else {
         output += `${globalNum}. ${answer}  \n`;
+        const analysis = analysisLineMD(q);
+        // 解析后面必须空一行：Markdown 里紧跟的「2. xxx」会被当成这段文字的惰性续行，编号失效
+        if (analysis) output += `${analysis}\n`;
       }
     }
     output += '\n';
   }
   return output.trim();
+}
+
+/**
+ * 答案下方的一行解析（「解析：…」），没有解析的题目返回空串、连行都不占。
+ *
+ * 只有勾选「附加答案」才会渲染答案汇总，因此解析不需要单独开关；行尾的硬换行（两个空格）
+ * 让它在 Markdown 里与答案分成两行而不是并成同一段。
+ */
+function analysisLineMD(q: LegacyQuestion): string {
+  const analysis = formatRichForMD(analysisOf(q));
+  return analysis ? `解析：${analysis}  \n` : '';
 }
 
 export function formatOutputWithAnswersMD(

@@ -4,8 +4,10 @@
 // 下面这些单章 formatter 本来就以「传入的结果集」为范围从 1 开始编号，按小节传入即自动按小节重排，
 // 因此不需要为多章节另写一套编号逻辑。
 import {
+  type LegacyQuestion,
   type LegacyResults,
   type LegacyTypeKey,
+  analysisOf,
   answerContent,
   formatRichForText,
   optionContent,
@@ -91,13 +93,25 @@ export function formatAnswersTXT(
         parts.forEach((part, i) => {
           output += `(${i + 1}) ${part}\n`;
         });
+        output += analysisLineTXT(q);
         output += '\n';
       } else {
-        output += `${globalNum}. ${answer}\n\n`;
+        output += `${globalNum}. ${answer}\n${analysisLineTXT(q)}\n`;
       }
     }
   }
   return output.trim();
+}
+
+/**
+ * 答案下方的一行解析（「解析：…」），没有解析的题目返回空串、连行都不占。
+ *
+ * 只有勾选「附加答案」才会走到答案汇总，因此解析不需要单独的开关；位置与题库导出的
+ * 习惯一致：答案的下一行，再空一行接下一题。
+ */
+function analysisLineTXT(q: LegacyQuestion): string {
+  const analysis = formatRichForText(analysisOf(q));
+  return analysis ? `解析：${analysis}\n` : '';
 }
 
 export function formatOutputWithAnswers(

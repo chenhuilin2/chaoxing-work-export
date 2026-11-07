@@ -257,7 +257,8 @@ button { -webkit-tap-highlight-color: transparent; }
 .cwe-history-modal {
   display: flex;
   flex-direction: column;
-  width: 460px;
+  /* 元信息一行要装下「时间 · N题 · 格式 · 拆分方式 · 附答案/错题」，460px 会折行 */
+  width: 520px;
   max-width: calc(100vw - 36px);
   max-height: 520px;
   padding: 24px;

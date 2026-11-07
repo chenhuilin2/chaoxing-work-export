@@ -135,6 +135,31 @@ test('「按章节拆分」与「按小节拆分」互斥：勾一个自动取�
   panel.destroy();
 });
 
+test('历史记录：元信息里标出这次导出用的是「按章节拆」还是「按小节拆」', () => {
+  const { panel, shadow } = mountPanel();
+  const entry = (id, overrides) => ({
+    id,
+    createdAt: '2026-10-19T08:00:00.000Z',
+    title: id,
+    result: { title: id, statistics: { total: 58 }, questions: [] },
+    options: exportOptions(overrides),
+  });
+
+  panel.renderHistory([
+    entry('按小节', { splitBySection: true }),
+    entry('按章节', { splitByChapter: true }),
+    entry('不拆分', {}),
+  ]);
+
+  const metas = [...shadow.querySelectorAll('.cwe-history-meta')].map((node) => node.textContent);
+  assert.match(metas[0], /Word · 按小节拆/u);
+  assert.match(metas[1], /Word · 按章节拆/u);
+  // 没勾拆分时不额外占字，与改动前一致
+  assert.doesNotMatch(metas[2], /按章节拆|按小节拆/u);
+
+  panel.destroy();
+});
+
 test('设置弹窗：开关组在上、快捷键设置移到下方', () => {
   const { panel, shadow } = mountPanel();
   assert.deepEqual(

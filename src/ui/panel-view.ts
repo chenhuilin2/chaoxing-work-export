@@ -457,10 +457,16 @@ export class PanelView {
       if (entry.options.bankImport) flags.push('题库导入');
       const flagStr = flags.length > 0 ? ` · ${flags.join('、')}` : '';
       const fmtName = fmtNames[entry.options.format] || entry.options.format.toUpperCase();
+      // 拆分粒度决定这次导出了几个文件，属于和格式同级的关键信息，单独占一段
+      const splitStr = entry.options.splitBySection
+        ? ' · 按小节拆'
+        : entry.options.splitByChapter
+          ? ' · 按章节拆'
+          : '';
 
       const meta = document.createElement('div');
       meta.className = 'cwe-history-meta';
-      meta.textContent = `${new Date(entry.createdAt).toLocaleString()} · ${entry.result.statistics.total}题 · ${fmtName}${flagStr}`;
+      meta.textContent = `${new Date(entry.createdAt).toLocaleString()} · ${entry.result.statistics.total}题 · ${fmtName}${splitStr}${flagStr}`;
 
       const downloadBtn = document.createElement('button');
       downloadBtn.type = 'button';
@@ -615,7 +621,13 @@ export class PanelView {
    */
   updateChapterProgress(progress: ChapterProgress): void {
     const stateLabel =
-      progress.state === 'loading' ? '正在加载' : progress.state === 'success' ? '已完成' : '失败';
+      progress.state === 'loading'
+        ? '正在加载'
+        : progress.state === 'success'
+          ? '已完成'
+          : progress.state === 'skipped'
+            ? '已跳过'
+            : '失败';
     const counter = `已提取 ${progress.completed}/${progress.total} 章节`;
     const name = sectionHeadingText(progress.chapter);
     const detail = `${name}${progress.message ? `（${progress.message}）` : ''}`;

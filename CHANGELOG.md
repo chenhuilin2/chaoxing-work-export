@@ -1,5 +1,50 @@
 # Changelog
 
+## 3.0.28
+
+### 变更
+
+- **批量提取遇到「只有视频的小节」不再停顿**。用户反馈：在章节练习里一次性提取多个小节，碰上只有视频的小节会卡一下。
+  - 根因：纯视频/文档小节的任务卡栏里**没有「章节测验」卡**，题目永远不会出现，而 `settleChapterResult()` 不管页面有没有题目卡都等满 `CHAPTER_SETTLE_TIMEOUT_MS`（20 秒）才判失败。批量里每遇到一个纯视频小节，就白等 20 秒。
+  - 改法：`QuestionSettleOptions` 新增 `shouldAbort`（每轮采样的放弃判定），`ExtractionService.settleQuestions()` 命中即 `return null`；`ChapterExtractionService` 用 `createNoQuestionTabProbe()` 提供判据 —— 「任务卡栏存在，但没有任何 测验/作业/考试 卡」**持续 1 秒**即确认放弃。
+  - 判据要「持续」而非「一得到就放弃」：切章瞬间 `#mainid` 会先被换成 loading 图，任务卡栏整体消失，那一刻读不到栏属于正常中间态。
+  - 进度条新增 `skipped` 状态（显示「已跳过」、状态栏中性色），不再把纯视频小节当成「失败」；全选的都是纯视频小节时错误文案变成「所选小节都没有测验任务点（仅视频/文档），没有题目可提取」。
+- **历史记录标出这次导出的拆分方式**：元信息行在格式之后加「按章节拆」/「按小节拆」（不拆则不加字），历史弹窗宽度 460px → 520px 以免这行折行。
+
+### 验证
+
+- `tests/extraction-settle.test.cjs` 新增 1 例：纯视频小节（切过去后任务卡栏只剩「视频」）在 4 秒内跳过并上报 `skipped`（旧实现要等满 20 秒），实测 1.8 秒。
+- `tests/panel-view.test.cjs` 新增 1 例：历史记录元信息按 `splitBySection` / `splitByChapter` 分别出现「按小节拆」/「按章节拆」，不拆分时不出现。
+- `.workbuddy/verify-video-only-skip.cjs`（新建）：用真实快照 `html/章节练习完整页.html` 验证判据 —— 真实任务卡为「视频 / 章节测验」，正常小节不会被误判；移除题目卡后 300ms 即放弃；只剩 `#mainid` 的 loading 图时不放弃。
+- 单测 186 → **188 例全绿**；`typecheck`、ESLint（`src`）0 问题。
+
+## 3.0.27
+
+### 变更
+
+- **作业页的「答案解析」随答案一起导出**。此前三种格式都只导出答案、不导出解析 —— 提取层其实早就把解析存进了 `Question.analysis`（作业页 `.analysisDiv`，共 6/35 道题带解析），但 `LegacyQuestion` 与三个 formatter 都没接这个字段，等于白读。
+  - **不新增开关**：解析跟着「附加答案」走，勾了就在答案汇总里出现，没勾就整段不出现；面板无需改动。
+  - 位置与题库导出的习惯一致 —— **答案的下一行**，再空一行接下一题（`1. B` / `解析：…`）。
+  - **只给有解析的题目加行**：没有解析的题目与改动前逐字一致，不会凭空多出一行「解析：」。
+  - TXT：`formatAnswersTXT`；Markdown：`formatAnswersMD`（解析行行尾两个空格做硬换行 + 后面空一行，否则 Markdown 会把下一题的 `2. …` 并进这段文字，编号失效）；Word：`appendAnswerPage` 在答案段后插一段解析，字号 20（比答案小一号）、灰蓝 `6B7280`、浅底 `F7F9FC`，与答案拉开层级。
+  - 三处都走同一个入口 `analysisOf(q)`（`legacy-bridge`），它会退回纯文本字段并再剥一遍开头的「解析：/答案解析：」标签 —— 历史记录里的老数据仍可能带着标签，直接拼会导出成「解析：解析：…」。
+- **修掉「答案解析」标签只剥了一半**：`stripAnswerLabel` 的正则里 `答案` 排在 `答案解析` 前面，先命中「答案」，正文于是从「解析：」开始 —— 单独看没什么，一旦开始导出解析就会变成「解析：解析：密码学理论…」。把 `答案解析` 调到最前面即可。
+- **补全作业页解析的选择器**：作业页的 `.analysis` 可能挂在 `.mark_answer` 里，也可能是它的兄弟节点，`ANALYSIS_SELECTORS` 补 `.analysisDiv .qtAnalysis` / `.analysisDiv .analysis` / `.qtAnalysis` 三条兜底。
+- **`buildRichRuns` 支持字号 / 颜色覆盖**：docx 的 `TextRun` 只在构造时读 options，事后改 `run.size` / `run.color` 不会写进 XML（这也是答案页「绿色加粗」一直没生效的原因，见下）。新增 `RunStyle` 参数，解析段靠它拿到 20 号灰蓝。
+
+### 已知问题（未在本次修复）
+
+- 答案页的「答案绿色加粗」实际没有生效：`appendAnswerPage` 里 `answerRuns.forEach((run) => { run.size = 22; run.bold = true; run.color = COLOR.answer; })` 是在 `new TextRun(...)` 之后改属性，docx 8.5 不会采纳，导出的答案仍是黑色常规字。属既有行为，改动会影响所有导出结果的观感，留待单独确认后再处理。
+
+### 验证
+
+- `tests/analysis-extraction.test.cjs`（新建，3 例）：解析在 `.mark_answer` 内外两种挂法都能提取、标签整段剥掉、没有解析的题目 `analysis` 为空数组。
+- `tests/formatters.test.cjs` 新增 4 例：TXT 解析紧跟答案且无解析题目不占行、标签不重复、MD 解析行后有空行、填空题多空后的解析位置。
+- `tests/word-export.test.cjs` 新增 2 例：解析段紧跟答案段、字号 20 / 灰蓝 / 浅底，未勾选「附加答案」时不出现解析。
+- `.workbuddy/verify-analysis-export.cjs`（新建）：用真实作业页快照（`html/作业.html`，35 题 / 6 题带解析）跑通三种格式 —— TXT/MD 解析行数 = 6、Word 解析段数 = 6 且样式正确、未勾选附加答案时为 0。
+- 另用真实 `docx@8.5.0` 生成 `.docx` 并经 LibreOffice 转 PDF 看图确认排版：`7. C` 下方紧跟灰蓝小字解析，再接 `8. D`。
+- 单测 177 → **186 例全绿**；`typecheck` 与 ESLint（`src`）0 问题。
+
 ## 3.0.26
 
 ### 变更

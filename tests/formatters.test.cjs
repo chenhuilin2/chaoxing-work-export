@@ -392,3 +392,73 @@ test('单章节：分段版输出与原函数逐字一致（改造不影响单�
   assert.equal(formatSectionsMD([]), '');
   assert.equal(formatSectionsOutputMD([], { withAnswers: true, withWrong: true }), '');
 });
+
+// ==================== 答案解析随答案一起导出 ====================
+// 作业页（.mark_item）的「答案解析」在勾选「附加答案」时跟着答案走：答案下一行，
+// 再空一行接下一题（与题库导出的排版习惯一致）。没有解析的题目不占行。
+
+/** 带解析的题目：一道有解析、一道没有 */
+const withAnalysisResults = {
+  单选: [
+    { ...legacyQuestion, stem: '有解析的题', stemContent: [{ type: 'text', text: '有解析的题' }],
+      analysis: '因为它确实是 A', analysisContent: [{ type: 'text', text: '因为它确实是 A' }] },
+    { ...legacyQuestion, stem: '无解析的题', stemContent: [{ type: 'text', text: '无解析的题' }],
+      correctAnswer: 'C', correctAnswerContent: [{ type: 'text', text: 'C' }] },
+  ],
+  多选: [],
+  填空: [],
+  判断: [],
+  简答: [],
+};
+
+test('TXT 答案汇总：解析跟在答案下一行，没有解析的题目不出现「解析：」', () => {
+  const output = formatAnswersTXT(withAnalysisResults, typeOrder);
+
+  // formatAnswersTXT 末尾会 trim，最后一题后面的空行不会留下
+  assert.equal(output, '一、单选题\n\n1. A\n解析：因为它确实是 A\n\n2. C');
+  assert.equal(countOccurrences(output, '解析：'), 1);
+
+  // 未勾选「附加答案」时根本没有答案汇总，也就不会有解析
+  const noAnswers = formatSectionsOutput([{ chapterHeading: null, heading: null, results: withAnalysisResults, typeOrder }], { withAnswers: false, withWrong: false });
+  assert.equal(noAnswers.includes('解析：'), false);
+});
+
+test('TXT 答案汇总：解析开头的「解析：」标签不会跟着重出一遍', () => {
+  const results = {
+    ...withAnalysisResults,
+    单选: [
+      { ...withAnalysisResults.单选[0], analysis: '解析：粘性标签', analysisContent: [{ type: 'text', text: '解析：粘性标签' }] },
+    ],
+  };
+  assert.equal(formatAnswersTXT(results, typeOrder), '一、单选题\n\n1. A\n解析：粘性标签');
+});
+
+test('Markdown 答案汇总：解析单独成行，后面空一行再接下一题', () => {
+  const output = formatAnswersMD(withAnalysisResults, typeOrder);
+
+  // 解析行尾两个空格是 Markdown 硬换行；紧跟的空行保证下一题仍是一个新的有序列表项
+  assert.equal(output, '**单选题**\n\n1. A  \n解析：因为它确实是 A  \n\n2. C');
+  assert.equal(countOccurrences(output, '解析：'), 1);
+});
+
+test('Markdown 答案汇总：填空题多空解析跟在各个空后面', () => {
+  const results = {
+    单选: [],
+    多选: [],
+    填空: [
+      {
+        ...legacyQuestion,
+        stem: '填空题',
+        stemContent: [{ type: 'text', text: '填空题' }],
+        correctAnswer: '甲；乙',
+        correctAnswerContent: [{ type: 'text', text: '甲；乙' }],
+        analysis: '两个空分别是甲乙',
+        analysisContent: [{ type: 'text', text: '两个空分别是甲乙' }],
+      },
+    ],
+    判断: [],
+    简答: [],
+  };
+  const output = formatAnswersMD(results, ['填空']);
+  assert.equal(output, '**填空题**\n\n1.  \n    (1) 甲  \n    (2) 乙  \n解析：两个空分别是甲乙  \n\n'.trimEnd());
+});

@@ -41,6 +41,11 @@ const ANALYSIS_SELECTORS = [
   '.analysisBx .answerCon',
   '.mark_answer .mark_analysis',
   '.mark_answer .analysis',
+  // 作业页（.mark_item）把解析放在 .mark_answer 之外的 .analysisDiv 里，
+  // 标签「答案解析：」与正文 .qtAnalysis 同层渲染
+  '.analysisDiv .qtAnalysis',
+  '.analysisDiv .analysis',
+  '.qtAnalysis',
   '.answerAnalysis',
   '.analysisContent',
   '.answer-analysis',

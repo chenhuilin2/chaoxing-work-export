@@ -278,8 +278,10 @@ export function stripAnswerLabel(content: RichContent): RichPart[] {
     if (part?.type !== 'text' || !part.text.trim()) continue;
     output[index] = {
       ...part,
+      // 「答案解析」必须排在「答案」之前：正则按顺序尝试，先命中「答案」会把「解析：」留在正文里，
+      // 导出的答案汇总就成了「解析：解析：…」
       text: part.text.replace(
-        /^\s*(?:正确答案|参考答案|答案|我的答案|你的答案|学生答案|答案解析|解析)\s*[:：]?\s*/u,
+        /^\s*(?:答案解析|正确答案|参考答案|我的答案|你的答案|学生答案|答案|解析)\s*[:：]?\s*/u,
         '',
       ),
     };

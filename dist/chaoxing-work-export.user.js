@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         超星学习通作业/考试一键提取导出 Word 文档
 // @namespace    https://github.com/chenhuilin2/chaoxing-work-export
-// @version      3.0.26
+// @version      3.0.28
 // @description  TypeScript 重构版：提取学习通作业与考试题目，支持富文本、答案解析、错题、章节批量提取及 Word/TXT/Markdown 导出
 // @author       huilin and contributors
 // @license      GPL-3.0-only
@@ -74,7 +74,7 @@
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.UI_HOST_ID = exports.APP_VERSION = exports.APP_NAME = void 0;
     exports.APP_NAME = 'Chaoxing Work Export';
-    exports.APP_VERSION = '3.0.26';
+    exports.APP_VERSION = '3.0.28';
     exports.UI_HOST_ID = 'chaoxing-work-export-root';
 });
 define("domain/export-options", ["require", "exports"], function (require, exports) {
@@ -2906,7 +2906,9 @@ define("extractors/rich-content", ["require", "exports", "utils/text", "extracto
                 continue;
             output[index] = {
                 ...part,
-                text: part.text.replace(/^\s*(?:正确答案|参考答案|答案|我的答案|你的答案|学生答案|答案解析|解析)\s*[:：]?\s*/u, ''),
+                // 「答案解析」必须排在「答案」之前：正则按顺序尝试，先命中「答案」会把「解析：」留在正文里，
+                // 导出的答案汇总就成了「解析：解析：…」
+                text: part.text.replace(/^\s*(?:答案解析|正确答案|参考答案|我的答案|你的答案|学生答案|答案|解析)\s*[:：]?\s*/u, ''),
             };
             break;
         }
@@ -3091,6 +3093,11 @@ define("extractors/common-answer", ["require", "exports", "utils/dom", "extracto
         '.analysisBx .answerCon',
         '.mark_answer .mark_analysis',
         '.mark_answer .analysis',
+        // 作业页（.mark_item）把解析放在 .mark_answer 之外的 .analysisDiv 里，
+        // 标签「答案解析：」与正文 .qtAnalysis 同层渲染
+        '.analysisDiv .qtAnalysis',
+        '.analysisDiv .analysis',
+        '.qtAnalysis',
         '.answerAnalysis',
         '.analysisContent',
         '.answer-analysis',
@@ -4136,6 +4143,7 @@ define("exporters/legacy-bridge", ["require", "exports"], function (require, exp
     exports.questionContent = questionContent;
     exports.optionContent = optionContent;
     exports.answerContent = answerContent;
+    exports.analysisOf = analysisOf;
     exports.escapeMarkdownAlt = escapeMarkdownAlt;
     exports.escapeMarkdownUrl = escapeMarkdownUrl;
     exports.formatRichForText = formatRichForText;
@@ -4249,6 +4257,30 @@ define("exporters/legacy-bridge", ["require", "exports"], function (require, exp
             return q.correctAnswerContent;
         return q.correctAnswer ? [{ type: 'text', text: q.correctAnswer }] : [];
     }
+    /**
+     * 解析内容（作业页才有，多数题目为空数组）。
+     *
+     * 优先取富文本字段，退回纯文本字段；并去掉开头残留的「解析：/答案解析：」标签 ——
+     * 历史记录里的老数据可能还带着标签（提取时剥离顺序曾经不对），直接拼接会导出成「解析：解析：…」。
+     */
+    function analysisOf(q) {
+        const stored = q.analysisContent ?? [];
+        const fallback = q.analysis ? [{ type: 'text', text: q.analysis }] : [];
+        const parts = (hasRichContent(stored) ? stored : fallback).map((part) => ({
+            ...part,
+        }));
+        for (let index = 0; index < parts.length; index += 1) {
+            const part = parts[index];
+            if (!part || part.type !== 'text')
+                continue;
+            parts[index] = {
+                ...part,
+                text: part.text.replace(/^\s*(?:答案解析|解析)\s*[:：]?\s*/u, ''),
+            };
+            break;
+        }
+        return normalizeRichContent(parts);
+    }
     // Markdown URL 转义，防止特殊字符破坏图片语法
     function escapeMarkdownAlt(text) {
         return (text || '图片').replace(/[[\]\n\r]/g, ' ').trim() || '图片';
@@ -4305,6 +4337,11 @@ define("exporters/legacy-bridge", ["require", "exports"], function (require, exp
             correctAnswerContent: question.correctAnswer,
             myAnswer: richTextOnly(question.userAnswer),
             isWrong: question.isWrong,
+            // 解析随答案一起导出（见 text/markdown/word 的答案汇总），无解析的题目保持空
+            analysis: richContentToText(question.analysis, () => '')
+                .replace(/\s+/g, ' ')
+                .trim(),
+            analysisContent: question.analysis,
         };
     }
     // 将 TS 领域模型结果转换为原版提取数据结构（全部题目按题型合并）
@@ -4704,15 +4741,30 @@ define("exporters/markdown-formatter", ["require", "exports", "exporters/legacy-
                     parts.forEach((part, i) => {
                         output += `    (${i + 1}) ${part}  \n`;
                     });
+                    output += analysisLineMD(q);
                     output += '\n';
                 }
                 else {
                     output += `${globalNum}. ${answer}  \n`;
+                    const analysis = analysisLineMD(q);
+                    // 解析后面必须空一行：Markdown 里紧跟的「2. xxx」会被当成这段文字的惰性续行，编号失效
+                    if (analysis)
+                        output += `${analysis}\n`;
                 }
             }
             output += '\n';
         }
         return output.trim();
+    }
+    /**
+     * 答案下方的一行解析（「解析：…」），没有解析的题目返回空串、连行都不占。
+     *
+     * 只有勾选「附加答案」才会渲染答案汇总，因此解析不需要单独开关；行尾的硬换行（两个空格）
+     * 让它在 Markdown 里与答案分成两行而不是并成同一段。
+     */
+    function analysisLineMD(q) {
+        const analysis = (0, legacy_bridge_2.formatRichForMD)((0, legacy_bridge_2.analysisOf)(q));
+        return analysis ? `解析：${analysis}  \n` : '';
     }
     function formatOutputWithAnswersMD(results, typeOrder) {
         let output = formatOutputMD(results, typeOrder);
@@ -4929,14 +4981,25 @@ define("exporters/text-formatter", ["require", "exports", "exporters/legacy-brid
                     parts.forEach((part, i) => {
                         output += `(${i + 1}) ${part}\n`;
                     });
+                    output += analysisLineTXT(q);
                     output += '\n';
                 }
                 else {
-                    output += `${globalNum}. ${answer}\n\n`;
+                    output += `${globalNum}. ${answer}\n${analysisLineTXT(q)}\n`;
                 }
             }
         }
         return output.trim();
+    }
+    /**
+     * 答案下方的一行解析（「解析：…」），没有解析的题目返回空串、连行都不占。
+     *
+     * 只有勾选「附加答案」才会走到答案汇总，因此解析不需要单独的开关；位置与题库导出的
+     * 习惯一致：答案的下一行，再空一行接下一题。
+     */
+    function analysisLineTXT(q) {
+        const analysis = (0, legacy_bridge_3.formatRichForText)((0, legacy_bridge_3.analysisOf)(q));
+        return analysis ? `解析：${analysis}\n` : '';
     }
     function formatOutputWithAnswers(results, typeOrder) {
         let output = formatOutput(results, typeOrder);
@@ -5142,11 +5205,13 @@ define("exporters/word-exporter", ["require", "exports", "exporters/legacy-bridg
         window.__xxt_failed_image_count = (window.__xxt_failed_image_count || 0) + 1;
         return null;
     }
-    async function buildRichRuns(content, prefix = '') {
+    async function buildRichRuns(content, prefix = '', style = {}) {
         const { TextRun } = docx;
         const runs = [];
+        const size = style.size ?? 22;
+        const color = style.color;
         if (prefix)
-            runs.push(new TextRun({ text: prefix, font: 'Microsoft YaHei', size: 22 }));
+            runs.push(new TextRun({ text: prefix, font: 'Microsoft YaHei', size, color }));
         for (const part of content || []) {
             if (part.type === 'text') {
                 const normalized = part.text.replace(/\n+/g, ' ');
@@ -5154,7 +5219,8 @@ define("exporters/word-exporter", ["require", "exports", "exporters/legacy-bridg
                     runs.push(new TextRun({
                         text: normalized,
                         font: 'Microsoft YaHei',
-                        size: 22,
+                        size,
+                        color,
                         bold: part.bold || false,
                         italics: part.italic || false,
                         subScript: part.subScript || false,
@@ -5164,17 +5230,17 @@ define("exporters/word-exporter", ["require", "exports", "exporters/legacy-bridg
             }
             else if (part.type === 'image') {
                 if (runs.length > 0)
-                    runs.push(new TextRun({ text: ' ', font: 'Microsoft YaHei', size: 22 }));
+                    runs.push(new TextRun({ text: ' ', font: 'Microsoft YaHei', size }));
                 const imgRun = await buildImageRun(part.url);
                 if (imgRun)
                     runs.push(imgRun);
-                runs.push(new TextRun({ text: ' ', font: 'Microsoft YaHei', size: 22 }));
+                runs.push(new TextRun({ text: ' ', font: 'Microsoft YaHei', size }));
             }
             else if (part.type === 'break') {
-                runs.push(new TextRun({ text: '\n', break: 1, font: 'Microsoft YaHei', size: 22 }));
+                runs.push(new TextRun({ text: '\n', break: 1, font: 'Microsoft YaHei', size }));
             }
         }
-        return runs.length ? runs : [new TextRun({ text: prefix, font: 'Microsoft YaHei', size: 22 })];
+        return runs.length ? runs : [new TextRun({ text: prefix, font: 'Microsoft YaHei', size, color })];
     }
     // 将富文本内容构建为带段后间距的 Paragraph 数组（Word 导出用）
     async function buildRichParagraphs(content, prefix = '', spacing = 0) {
@@ -5689,6 +5755,21 @@ define("exporters/word-exporter", ["require", "exports", "exporters/legacy-bridg
                             spacing: { before: 90, after: 70 },
                             indent: { left: 420 },
                         }));
+                        // 解析：作业页才有的「答案解析」，跟在答案下方一行（字号比答案小一号、灰蓝色、浅底）。
+                        // 没有解析的题目不占位，导出结果与改动前一致。
+                        const analysis = (0, legacy_bridge_4.analysisOf)(q);
+                        if (analysis.length > 0) {
+                            const analysisRuns = await buildRichRuns(analysis, '解析：', {
+                                size: 20,
+                                color: COLOR.muted,
+                            });
+                            children.push(new Paragraph({
+                                children: analysisRuns,
+                                spacing: { after: 120 },
+                                indent: { left: 420 },
+                                shading: { fill: COLOR.analysisBg },
+                            }));
+                        }
                         // 简答题答案常有多行，之间空一行便于区分
                         if (qtype === '简答') {
                             children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
@@ -7226,6 +7307,9 @@ define("application/extraction-service", ["require", "exports", "domain/question
             let stableMs = 0;
             for (;;) {
                 options.repair?.();
+                // 页面已确认不会再有题目（如只有视频的小节）：立刻放弃，不空等超时
+                if (options.shouldAbort?.())
+                    return null;
                 const result = this.extract();
                 if (result && result.questions.length > 0) {
                     const fingerprint = this.fingerprint(result);
@@ -7507,12 +7591,44 @@ define("application/chapter-extraction-service", ["require", "exports", "domain/
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.ChapterExtractionService = void 0;
+    exports.createNoQuestionTabProbe = createNoQuestionTabProbe;
     // 单章等待上限：章节切换后要依次等卡片页重建 → 任务卡切换 → 答题页加载
     const CHAPTER_SETTLE_TIMEOUT_MS = 20000;
     // 页面已停在目标章节、没有任务卡可切时，等待「选项中补上来」的额外上限
     const PARTIAL_FILL_TIMEOUT_MS = 5000;
     // 收尾还原任务卡前的短暂等待：章节页面正在重建，任务卡栏属于新页面
     const RESTORE_TAB_DELAY_MS = 400;
+    // 「本小节没有测验任务点」的确认时长：任务卡栏在切章瞬间会整体消失，
+    // 要求「栏存在且没有题目卡」持续这么久才算数，避免把重建过程中的中间态当成纯视频小节
+    const NO_QUESTION_TAB_GRACE_MS = 1000;
+    /**
+     * 「本小节没有测验任务点」探测器。
+     *
+     * 有些小节只放了视频/文档，任务卡栏里根本没有「章节测验」——题目永远不会出现，
+     * 采样循环若照常等满超时，批量提取就会在这里卡住一下（用户感知为「停顿」）。
+     * 任务卡栏在切章瞬间会整体消失（`#mainid` 先放 loading 图），
+     * 因此要求「栏已存在、但没有题目卡」持续 `graceMs` 才算确认。
+     *
+     * 判据取真实页面结构：`#prev_tab` 存在 + 没有任何 测验/作业/考试 任务卡。
+     */
+    function createNoQuestionTabProbe(tabs, graceMs = NO_QUESTION_TAB_GRACE_MS) {
+        let missingSince = null;
+        let aborted = false;
+        const check = () => {
+            if (aborted)
+                return true;
+            if (!tabs.present() || tabs.questionTabIndex() !== null) {
+                // 栏还没建出来（或题目卡又出现了）：重新计时
+                missingSince = null;
+                return false;
+            }
+            if (missingSince === null)
+                missingSince = Date.now();
+            aborted = Date.now() - missingSince >= graceMs;
+            return aborted;
+        };
+        return { check, aborted: () => aborted };
+    }
     /** Sequentially visits selected chapters and produces a single aggregate snapshot. */
     class ChapterExtractionService {
         constructor(extractionService, locator = new chapter_locator_1.ChapterLocator(), taskTabs = new task_tab_locator_1.TaskTabLocator()) {
@@ -7539,6 +7655,8 @@ define("application/chapter-extraction-service", ["require", "exports", "domain/
             const hasTaskTabs = this.taskTabs.present();
             const originalTabIndex = hasTaskTabs ? this.taskTabs.activeIndex() : null;
             const chapterResults = [];
+            // 只有视频/文档的小节没有题目可提，单独计数，好在全部为空时给出准确提示
+            let skippedCount = 0;
             let previousFingerprint = this.extractionService.fingerprint(this.extractionService.extract());
             try {
                 for (let index = 0; index < selected.length; index += 1) {
@@ -7560,21 +7678,26 @@ define("application/chapter-extraction-service", ["require", "exports", "domain/
                         });
                         continue;
                     }
-                    const result = await this.settleChapterResult({
+                    const outcome = await this.settleChapterResult({
                         alreadyActive,
                         hasTaskTabs,
                         previousFingerprint,
                     });
-                    if (!result) {
+                    if (!outcome.result) {
+                        if (outcome.skipped)
+                            skippedCount += 1;
                         onProgress({
                             completed: index + 1,
                             total: selected.length,
                             chapter,
-                            state: 'failed',
-                            message: '未在限定时间内识别到题目',
+                            state: outcome.skipped ? 'skipped' : 'failed',
+                            message: outcome.skipped
+                                ? '该小节没有测验任务点（仅视频/文档），已跳过'
+                                : '未在限定时间内识别到题目',
                         });
                         continue;
                     }
+                    const result = outcome.result;
                     const questions = result.questions.map((question, questionIndex) => {
                         return this.attachChapter(question, chapter, questionIndex);
                     });
@@ -7610,8 +7733,11 @@ define("application/chapter-extraction-service", ["require", "exports", "domain/
                     }
                 }
             }
-            if (chapterResults.length === 0)
-                throw new Error('所选章节均未提取到题目');
+            if (chapterResults.length === 0) {
+                throw new Error(skippedCount === selected.length
+                    ? '所选小节都没有测验任务点（仅视频/文档），没有题目可提取'
+                    : '所选章节均未提取到题目');
+            }
             const questions = chapterResults.flatMap((chapter) => chapter.questions);
             return {
                 title: this.aggregateTitle(chapterResults),
@@ -7630,23 +7756,33 @@ define("application/chapter-extraction-service", ["require", "exports", "domain/
          * 章节切换会重建卡片页，新页面默认回到「视频」卡，只切一次的任务卡会随旧页面失效，
          * 因此不用「切一次卡 + 固定长等待」，而是在采样循环里每轮补切一次（限次 + 冷却）。
          * 章节刚切换时旧章节的题目 DOM 可能还在，必须等指纹变化才算本章内容，避免串页。
+         * 只有视频/文档的小节永远等不到题目，由「无题目卡」探测器提前放弃。
          */
         async settleChapterResult(options) {
             // 章节未切换且页面没有任务卡栏：结构不会自己变出题目，只取一次即可。
             // 例外是「选择题只渲染了题干、选项还没补上」，这种中间态要短暂等待补齐
             if (options.alreadyActive && !options.hasTaskTabs) {
                 const immediate = this.extractionService.extract();
-                if (!immediate || (0, extraction_service_1.incompleteChoiceCount)(immediate) === 0)
-                    return immediate;
-                return ((await this.extractionService.settleQuestions({ timeoutMs: PARTIAL_FILL_TIMEOUT_MS })) ??
-                    immediate);
+                if (!immediate || (0, extraction_service_1.incompleteChoiceCount)(immediate) === 0) {
+                    return { result: immediate, skipped: false };
+                }
+                return {
+                    result: (await this.extractionService.settleQuestions({
+                        timeoutMs: PARTIAL_FILL_TIMEOUT_MS,
+                    })) ?? immediate,
+                    skipped: false,
+                };
             }
             const guard = new task_tab_locator_1.QuestionTabGuard(this.taskTabs);
-            return this.extractionService.settleQuestions({
+            const probe = createNoQuestionTabProbe(this.taskTabs);
+            const result = await this.extractionService.settleQuestions({
                 timeoutMs: CHAPTER_SETTLE_TIMEOUT_MS,
                 previousFingerprint: options.alreadyActive ? undefined : options.previousFingerprint,
                 repair: options.hasTaskTabs ? () => void guard.ensure() : undefined,
+                // 页面没有任务卡栏时不启用：那种页面本来就不该按「没有测验卡」判断
+                shouldAbort: options.hasTaskTabs ? probe.check : undefined,
             });
+            return { result, skipped: result === null && probe.aborted() };
         }
         attachChapter(question, chapter, questionIndex) {
             return {
@@ -7947,7 +8083,8 @@ button { -webkit-tap-highlight-color: transparent; }
 .cwe-history-modal {
   display: flex;
   flex-direction: column;
-  width: 460px;
+  /* 元信息一行要装下「时间 · N题 · 格式 · 拆分方式 · 附答案/错题」，460px 会折行 */
+  width: 520px;
   max-width: calc(100vw - 36px);
   max-height: 520px;
   padding: 24px;
@@ -8479,9 +8616,15 @@ define("ui/panel-view", ["require", "exports", "app-config", "domain/chapter", "
                     flags.push('题库导入');
                 const flagStr = flags.length > 0 ? ` · ${flags.join('、')}` : '';
                 const fmtName = fmtNames[entry.options.format] || entry.options.format.toUpperCase();
+                // 拆分粒度决定这次导出了几个文件，属于和格式同级的关键信息，单独占一段
+                const splitStr = entry.options.splitBySection
+                    ? ' · 按小节拆'
+                    : entry.options.splitByChapter
+                        ? ' · 按章节拆'
+                        : '';
                 const meta = document.createElement('div');
                 meta.className = 'cwe-history-meta';
-                meta.textContent = `${new Date(entry.createdAt).toLocaleString()} · ${entry.result.statistics.total}题 · ${fmtName}${flagStr}`;
+                meta.textContent = `${new Date(entry.createdAt).toLocaleString()} · ${entry.result.statistics.total}题 · ${fmtName}${splitStr}${flagStr}`;
                 const downloadBtn = document.createElement('button');
                 downloadBtn.type = 'button';
                 downloadBtn.className = 'cwe-history-download';
@@ -8620,7 +8763,13 @@ define("ui/panel-view", ["require", "exports", "app-config", "domain/chapter", "
          * 面板状态栏同步同一个计数，避免关掉弹窗后看不到进度。
          */
         updateChapterProgress(progress) {
-            const stateLabel = progress.state === 'loading' ? '正在加载' : progress.state === 'success' ? '已完成' : '失败';
+            const stateLabel = progress.state === 'loading'
+                ? '正在加载'
+                : progress.state === 'success'
+                    ? '已完成'
+                    : progress.state === 'skipped'
+                        ? '已跳过'
+                        : '失败';
             const counter = `已提取 ${progress.completed}/${progress.total} 章节`;
             const name = (0, chapter_2.sectionHeadingText)(progress.chapter);
             const detail = `${name}${progress.message ? `（${progress.message}）` : ''}`;

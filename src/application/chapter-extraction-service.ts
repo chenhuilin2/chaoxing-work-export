@@ -21,15 +21,50 @@ const PARTIAL_FILL_TIMEOUT_MS = 5_000;
 // 收尾还原任务卡前的短暂等待：章节页面正在重建，任务卡栏属于新页面
 const RESTORE_TAB_DELAY_MS = 400;
 
+// 「本小节没有测验任务点」的确认时长：任务卡栏在切章瞬间会整体消失，
+// 要求「栏存在且没有题目卡」持续这么久才算数，避免把重建过程中的中间态当成纯视频小节
+const NO_QUESTION_TAB_GRACE_MS = 1_000;
+
 export interface ChapterProgress {
   readonly completed: number;
   readonly total: number;
   readonly chapter: ChapterDescriptor;
-  readonly state: 'loading' | 'success' | 'failed';
+  /** skipped：该小节只有视频/文档，没有测验任务点，没有题目可提 */
+  readonly state: 'loading' | 'success' | 'failed' | 'skipped';
   readonly message?: string;
 }
 
 export type ChapterProgressListener = (progress: ChapterProgress) => void;
+
+/**
+ * 「本小节没有测验任务点」探测器。
+ *
+ * 有些小节只放了视频/文档，任务卡栏里根本没有「章节测验」——题目永远不会出现，
+ * 采样循环若照常等满超时，批量提取就会在这里卡住一下（用户感知为「停顿」）。
+ * 任务卡栏在切章瞬间会整体消失（`#mainid` 先放 loading 图），
+ * 因此要求「栏已存在、但没有题目卡」持续 `graceMs` 才算确认。
+ *
+ * 判据取真实页面结构：`#prev_tab` 存在 + 没有任何 测验/作业/考试 任务卡。
+ */
+export function createNoQuestionTabProbe(
+  tabs: TaskTabLocator,
+  graceMs = NO_QUESTION_TAB_GRACE_MS,
+): { check: () => boolean; aborted: () => boolean } {
+  let missingSince: number | null = null;
+  let aborted = false;
+  const check = (): boolean => {
+    if (aborted) return true;
+    if (!tabs.present() || tabs.questionTabIndex() !== null) {
+      // 栏还没建出来（或题目卡又出现了）：重新计时
+      missingSince = null;
+      return false;
+    }
+    if (missingSince === null) missingSince = Date.now();
+    aborted = Date.now() - missingSince >= graceMs;
+    return aborted;
+  };
+  return { check, aborted: () => aborted };
+}
 
 /** Sequentially visits selected chapters and produces a single aggregate snapshot. */
 export class ChapterExtractionService {
@@ -63,6 +98,8 @@ export class ChapterExtractionService {
     const hasTaskTabs = this.taskTabs.present();
     const originalTabIndex = hasTaskTabs ? this.taskTabs.activeIndex() : null;
     const chapterResults: ChapterExtraction[] = [];
+    // 只有视频/文档的小节没有题目可提，单独计数，好在全部为空时给出准确提示
+    let skippedCount = 0;
     let previousFingerprint = this.extractionService.fingerprint(this.extractionService.extract());
 
     try {
@@ -87,23 +124,27 @@ export class ChapterExtractionService {
           continue;
         }
 
-        const result = await this.settleChapterResult({
+        const outcome = await this.settleChapterResult({
           alreadyActive,
           hasTaskTabs,
           previousFingerprint,
         });
 
-        if (!result) {
+        if (!outcome.result) {
+          if (outcome.skipped) skippedCount += 1;
           onProgress({
             completed: index + 1,
             total: selected.length,
             chapter,
-            state: 'failed',
-            message: '未在限定时间内识别到题目',
+            state: outcome.skipped ? 'skipped' : 'failed',
+            message: outcome.skipped
+              ? '该小节没有测验任务点（仅视频/文档），已跳过'
+              : '未在限定时间内识别到题目',
           });
           continue;
         }
 
+        const result = outcome.result;
         const questions = result.questions.map((question, questionIndex) => {
           return this.attachChapter(question, chapter, questionIndex);
         });
@@ -140,7 +181,13 @@ export class ChapterExtractionService {
       }
     }
 
-    if (chapterResults.length === 0) throw new Error('所选章节均未提取到题目');
+    if (chapterResults.length === 0) {
+      throw new Error(
+        skippedCount === selected.length
+          ? '所选小节都没有测验任务点（仅视频/文档），没有题目可提取'
+          : '所选章节均未提取到题目',
+      );
+    }
 
     const questions = chapterResults.flatMap((chapter) => chapter.questions);
     return {
@@ -161,29 +208,39 @@ export class ChapterExtractionService {
    * 章节切换会重建卡片页，新页面默认回到「视频」卡，只切一次的任务卡会随旧页面失效，
    * 因此不用「切一次卡 + 固定长等待」，而是在采样循环里每轮补切一次（限次 + 冷却）。
    * 章节刚切换时旧章节的题目 DOM 可能还在，必须等指纹变化才算本章内容，避免串页。
+   * 只有视频/文档的小节永远等不到题目，由「无题目卡」探测器提前放弃。
    */
   private async settleChapterResult(options: {
     readonly alreadyActive: boolean;
     readonly hasTaskTabs: boolean;
     readonly previousFingerprint: string;
-  }): Promise<ExtractionResult | null> {
+  }): Promise<{ readonly result: ExtractionResult | null; readonly skipped: boolean }> {
     // 章节未切换且页面没有任务卡栏：结构不会自己变出题目，只取一次即可。
     // 例外是「选择题只渲染了题干、选项还没补上」，这种中间态要短暂等待补齐
     if (options.alreadyActive && !options.hasTaskTabs) {
       const immediate = this.extractionService.extract();
-      if (!immediate || incompleteChoiceCount(immediate) === 0) return immediate;
-      return (
-        (await this.extractionService.settleQuestions({ timeoutMs: PARTIAL_FILL_TIMEOUT_MS })) ??
-        immediate
-      );
+      if (!immediate || incompleteChoiceCount(immediate) === 0) {
+        return { result: immediate, skipped: false };
+      }
+      return {
+        result:
+          (await this.extractionService.settleQuestions({
+            timeoutMs: PARTIAL_FILL_TIMEOUT_MS,
+          })) ?? immediate,
+        skipped: false,
+      };
     }
 
     const guard = new QuestionTabGuard(this.taskTabs);
-    return this.extractionService.settleQuestions({
+    const probe = createNoQuestionTabProbe(this.taskTabs);
+    const result = await this.extractionService.settleQuestions({
       timeoutMs: CHAPTER_SETTLE_TIMEOUT_MS,
       previousFingerprint: options.alreadyActive ? undefined : options.previousFingerprint,
       repair: options.hasTaskTabs ? () => void guard.ensure() : undefined,
+      // 页面没有任务卡栏时不启用：那种页面本来就不该按「没有测验卡」判断
+      shouldAbort: options.hasTaskTabs ? probe.check : undefined,
     });
+    return { result, skipped: result === null && probe.aborted() };
   }
 
   private attachChapter(

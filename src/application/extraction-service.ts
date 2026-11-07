@@ -20,6 +20,12 @@ export interface QuestionSettleOptions {
   readonly previousFingerprint?: string;
   /** 每轮采样前的修正动作，例如补切被新页面重置的任务卡 */
   readonly repair?: () => void;
+  /**
+   * 每轮采样的放弃判定：返回 true 立即结束并返回 null。
+   * 用于「页面已经确认不会有题目」的场景（例如只有视频的小节没有测验任务卡），
+   * 避免空等满整段超时。
+   */
+  readonly shouldAbort?: () => boolean;
 }
 
 // 采样间隔：只决定「题目出现」被检测到的延迟，越小越快（每轮含一次跨层提取）
@@ -149,6 +155,8 @@ export class ExtractionService {
 
     for (;;) {
       options.repair?.();
+      // 页面已确认不会再有题目（如只有视频的小节）：立刻放弃，不空等超时
+      if (options.shouldAbort?.()) return null;
       const result = this.extract();
 
       if (result && result.questions.length > 0) {

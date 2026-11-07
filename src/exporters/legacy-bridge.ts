@@ -32,6 +32,9 @@ export interface LegacyQuestion {
   myAnswer: string;
   isWrong: boolean;
   images?: string[];
+  // 解析（作业页才有）；老数据/无解析的题目没有这两个字段
+  analysis?: string;
+  analysisContent?: RichContent;
 }
 
 // 原版脚本按题型分组的题目集合
@@ -164,6 +167,30 @@ export function answerContent(q: LegacyQuestion): RichContent {
   return q.correctAnswer ? [{ type: 'text', text: q.correctAnswer }] : [];
 }
 
+/**
+ * 解析内容（作业页才有，多数题目为空数组）。
+ *
+ * 优先取富文本字段，退回纯文本字段；并去掉开头残留的「解析：/答案解析：」标签 ——
+ * 历史记录里的老数据可能还带着标签（提取时剥离顺序曾经不对），直接拼接会导出成「解析：解析：…」。
+ */
+export function analysisOf(q: LegacyQuestion): RichContent {
+  const stored = q.analysisContent ?? [];
+  const fallback: RichContent = q.analysis ? [{ type: 'text', text: q.analysis }] : [];
+  const parts: RichPart[] = (hasRichContent(stored) ? stored : fallback).map((part) => ({
+    ...part,
+  }));
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index];
+    if (!part || part.type !== 'text') continue;
+    parts[index] = {
+      ...part,
+      text: part.text.replace(/^\s*(?:答案解析|解析)\s*[:：]?\s*/u, ''),
+    };
+    break;
+  }
+  return normalizeRichContent(parts);
+}
+
 // Markdown URL 转义，防止特殊字符破坏图片语法
 export function escapeMarkdownAlt(text: string): string {
   return (text || '图片').replace(/[[\]\n\r]/g, ' ').trim() || '图片';
@@ -233,6 +260,11 @@ function toLegacyQuestion(question: Question): LegacyQuestion {
     correctAnswerContent: question.correctAnswer,
     myAnswer: richTextOnly(question.userAnswer),
     isWrong: question.isWrong,
+    // 解析随答案一起导出（见 text/markdown/word 的答案汇总），无解析的题目保持空
+    analysis: richContentToText(question.analysis, () => '')
+      .replace(/\s+/g, ' ')
+      .trim(),
+    analysisContent: question.analysis,
   };
 }
 

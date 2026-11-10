@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         超星学习通作业/考试一键提取导出 Word 文档
 // @namespace    https://github.com/chenhuilin2/chaoxing-work-export
-// @version      3.0.30
+// @version      3.0.31
 // @description  TypeScript 重构版：提取学习通作业与考试题目，支持富文本、答案解析、错题、章节批量提取及 Word/TXT/Markdown 导出
 // @author       huilin and contributors
 // @license      GPL-3.0-only
@@ -74,7 +74,7 @@
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.UI_HOST_ID = exports.APP_VERSION = exports.APP_NAME = void 0;
     exports.APP_NAME = 'Chaoxing Work Export';
-    exports.APP_VERSION = '3.0.30';
+    exports.APP_VERSION = '3.0.31';
     exports.UI_HOST_ID = 'chaoxing-work-export-root';
 });
 define("domain/export-options", ["require", "exports"], function (require, exports) {
@@ -5193,7 +5193,11 @@ define("exporters/word-exporter", ["require", "exports", "exporters/legacy-bridg
             const maxHeight = 260;
             const scale = Math.min(maxWidth / base64.width, maxHeight / base64.height, 1);
             return new docx.ImageRun({
-                data: base64,
+                // docx 的 ImageRun 只认 dataURL 字符串 / Blob / ArrayBuffer：把 fetchImageAsset 返回的
+                // 整个对象塞进 data 时，打包阶段 JSZip 会报
+                // 「Can't read the data of 'word/media/xxx.png'. Is it in a supported JavaScript type…」
+                // （issue #21：题目里带图片时整个 Word 导出直接失败）
+                data: base64.data,
                 transformation: {
                     width: Math.round(base64.width * scale),
                     height: Math.round(base64.height * scale),

@@ -1,5 +1,22 @@
 # Changelog
 
+## 3.0.31
+
+### 变更
+
+- **修掉「题目里带图片时 Word 导出直接失败」**（issue #21）。用户报错原文：
+  `Word 导出失败: Can't read the data of 'word/media/dpfksow4l4mn7ndjctkv4.png'. Is it in a supported JavaScript type (String, Blob, ArrayBuffer, etc) ?` —— 提取正常，一点导出就报错。
+  - 根因在 `buildImageRun`：`fetchImageAsset()` 返回的是 `{ data, type, width, height }`（`data` 是 dataURL 字符串），但代码把这个**整个对象**塞进了 `new docx.ImageRun({ data: base64, … })`。docx 的 `ImageRun` 只接受 `string`（dataURL）/ `Blob` / `ArrayBuffer` / `Uint8Array`：字符串会走 `convertDataURIToBinary()`，对象则原样丢给 JSZip，打包阶段就抛上面那条错。
+  - 改成 `data: base64.data`。**只影响「题目/选项里带图片」的导出**：纯文字题目根本不走这条路径，所以同一份作业别人导出正常、这份必失败。
+  - 正文与题库导入共用 `buildImageRun`（`buildRichRuns` 与 `buildBankImportBlob` 两处调用），改这一处两边都修好。
+
+### 验证
+
+- `tests/word-export.test.cjs` 新增 1 例：给「fetch → FileReader → Image」搭最小桩，断言 `ImageRun.data` 是 `data:image/png;base64,…` 字符串（此前是对象）。
+- 用真实 `docx@8.5.0` 复现对照：传整个对象 → 报的正是 issue 里那句 `Can't read the data of 'word/media/xxx.png'`；只传 dataURL → 正常出包。
+- 端到端：真实库生成带图 docx（`word/media/*.png` 70 字节真实 PNG、`<w:drawing>` + `r:embed` 齐全），LibreOffice 转 PDF 后首页 1 张图片正常渲染，全文 2 页无异常。
+- 单测 191 → **192 例全绿**；`typecheck`、ESLint（`src`）0 问题。
+
 ## 3.0.30
 
 ### 变更

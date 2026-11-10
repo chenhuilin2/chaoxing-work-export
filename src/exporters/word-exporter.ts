@@ -80,7 +80,11 @@ async function buildImageRun(url: string): Promise<any> {
     const maxHeight = 260;
     const scale = Math.min(maxWidth / base64.width, maxHeight / base64.height, 1);
     return new docx.ImageRun({
-      data: base64,
+      // docx 的 ImageRun 只认 dataURL 字符串 / Blob / ArrayBuffer：把 fetchImageAsset 返回的
+      // 整个对象塞进 data 时，打包阶段 JSZip 会报
+      // 「Can't read the data of 'word/media/xxx.png'. Is it in a supported JavaScript type…」
+      // （issue #21：题目里带图片时整个 Word 导出直接失败）
+      data: base64.data,
       transformation: {
         width: Math.round(base64.width * scale),
         height: Math.round(base64.height * scale),

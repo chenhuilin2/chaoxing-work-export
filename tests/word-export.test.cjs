@@ -471,3 +471,56 @@ test('题库导入：判断题答案认不出来时保留页面原文，不猜�
   const children = await renderDocument(result, exportOptions({ bankImport: true }));
   assert.ok(paragraphTexts(children).includes('答案：视情况而定'));
 });
+
+/** 给「抓图 → ImageRun」这条链路搭最小桩：fetch 返回图片 Blob，FileReader 给 dataURL，Image 给尺寸 */
+function stubImagePipeline() {
+  const saved = {
+    fetch: globalThis.fetch,
+    FileReader: globalThis.FileReader,
+    Image: globalThis.Image,
+  };
+  globalThis.fetch = async () => ({ ok: true, blob: async () => ({ type: 'image/png' }) });
+  globalThis.FileReader = class {
+    readAsDataURL() {
+      this.result = 'data:image/png;base64,iVBORw0KGgo=';
+      this.onloadend?.();
+    }
+  };
+  globalThis.Image = class {
+    set src(value) {
+      this.naturalWidth = 120;
+      this.naturalHeight = 80;
+      this.onload?.();
+    }
+  };
+  return () => Object.assign(globalThis, saved);
+}
+
+test('带图片的题目：ImageRun 的 data 必须是 dataURL 字符串（issue #21）', async () => {
+  // 此前把 fetchImageAsset 返回的 { data, type, width, height } 整个对象塞进 ImageRun.data，
+  // docx 只认 string / Blob / ArrayBuffer，打包时 JSZip 报
+  // 「Can't read the data of 'word/media/xxx.png'」，题目一带图片整个 Word 导出就失败。
+  const imageQuestion = {
+    ...question('q-img', 'single-choice'),
+    stem: [
+      { type: 'text', text: '看图作答' },
+      { type: 'break' },
+      { type: 'image', url: 'https://example.com/a.png', alt: '图' },
+    ],
+  };
+  const result = resultOf([chapter('c-img', '图片题', [imageQuestion])], '图片题');
+
+  const restore = stubImagePipeline();
+  try {
+    const children = await renderDocument(result, exportOptions({ withAnswers: false }));
+    const imageRun = children
+      .flatMap((node) => node.children ?? [])
+      .find((child) => child instanceof ImageRun);
+
+    assert.ok(imageRun, '应当生成一个 ImageRun');
+    assert.equal(typeof imageRun.data, 'string');
+    assert.ok(imageRun.data.startsWith('data:image/png;base64,'));
+  } finally {
+    restore();
+  }
+});
